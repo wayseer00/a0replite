@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Request
 
-router = APIRouter(tags=["health"])
+router = APIRouter(prefix="/api", tags=["health"])
 
 _system_inst: Optional[object] = None
 
@@ -46,10 +46,10 @@ async def health() -> dict:
 
 
 @router.get("/")
-async def root() -> dict:
+async def api_root() -> dict:
     return {
         "service": "a0replite",
         "description": "Grounded AI instance — The Interdependent Way",
-        "version": "0.1.0",
+        "version": "0.4.0",
         "hmmm": "",
     }

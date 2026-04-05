@@ -20,6 +20,7 @@ _REQUIRED_ENV = [
     "GITHUB_TOKEN_VAULT2",
     "PCEA_IKM",
     "DATABASE_URL",
+    "GUARDIAN_OPERATOR_KEY",
 ]
 
 
@@ -174,7 +175,9 @@ async def _boot_system_instance() -> None:
     app.state.system_inst = inst
 
     from core.boot_task import make_boot_task
+    from core.guardian.approval_gate import pre_authorize_boot
     from core.volatile_task import get_queue
+    pre_authorize_boot(inst)
     boot_task = make_boot_task(inst, grok_text_fn, github_token)
     queue = get_queue()
     queue.register(boot_task)

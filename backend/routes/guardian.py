@@ -19,14 +19,13 @@ from models.guardian import (
 router = APIRouter(prefix="/guardian", tags=["guardian"])
 
 
-def _require_operator_auth(x_operator_key: Optional[str] = Header(default=None)) -> None:
+def _require_operator_auth(x_operator_key: Optional[str] = None) -> None:
     """
     Require a valid operator API key for guardian control endpoints.
-    The key is the PCEA_IKM hex (first 32 chars) — operator-only knowledge.
-    This prevents unauthorized S4 state flips from public callers.
+    Uses the dedicated GUARDIAN_OPERATOR_KEY secret — never derived from PCEA_IKM.
+    Returns 403 for missing or wrong key.
     """
-    ikm_hex = os.environ.get("PCEA_IKM", "")
-    expected = ikm_hex[:32] if len(ikm_hex) >= 32 else ikm_hex
+    expected = os.environ.get("GUARDIAN_OPERATOR_KEY", "")
     if not expected or x_operator_key != expected:
         raise HTTPException(
             status_code=403,

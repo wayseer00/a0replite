@@ -80,14 +80,22 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
         )
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
+        emitted: list[bytes] = []
+
+        def _push(data: bytes) -> None:
+            emitted.append(data)
+
         if guardrails_prefix:
-            for chunk in guardrails_prefix.split("\n"):
-                if chunk:
-                    yield f"data: {json.dumps({'content': chunk + chr(10)})}\n\n".encode()
+            for line in guardrails_prefix.split("\n"):
+                if line:
+                    chunk_bytes = f"data: {json.dumps({'content': line + chr(10)})}\n\n".encode()
+                    emit_text(line, lambda _: None)
+                    yield chunk_bytes
 
         full_response = ""
         async for chunk in stream_grok(api_key, messages, _DEFAULT_MODEL):
             full_response += chunk
+            emit_text(chunk, lambda _: None)
             yield f"data: {json.dumps({'content': chunk})}\n\n".encode()
 
         yield b"data: [DONE]\n\n"

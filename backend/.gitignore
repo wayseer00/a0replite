@@ -7,5 +7,5 @@ dist/
 build/
 .venv/
 .mypy_cache/
-data/edcmbone_canon_data_v1.zip
+
 alembic/versions/*.pyc

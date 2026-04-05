@@ -14,9 +14,9 @@ async def plans() -> PlanResponse:
     return PlanResponse(plans=get_plans(), hmmm="")
 
 
-@router.post("/payments/checkout", response_model=CheckoutResponse)
+@router.post("/checkout", response_model=CheckoutResponse)
 async def checkout(payload: CheckoutPayload) -> CheckoutResponse:
-    require_hmmm(payload.model_dump(), "POST /api/payments/checkout")
+    require_hmmm(payload.model_dump(), "POST /api/checkout")
     try:
         url = await create_checkout_session(tier=payload.tier, user_id=payload.user_id)
     except (ValueError, RuntimeError) as exc:
@@ -24,7 +24,7 @@ async def checkout(payload: CheckoutPayload) -> CheckoutResponse:
     return CheckoutResponse(checkout_url=url, hmmm=payload.hmmm)
 
 
-@router.post("/payments/webhook")
+@router.post("/webhook")
 async def stripe_webhook(request: Request, stripe_signature: str = Header(None)) -> dict:
     payload = await request.body()
     if not stripe_signature:
