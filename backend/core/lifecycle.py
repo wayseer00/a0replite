@@ -14,8 +14,8 @@ class InstanceState(Enum):
 _VALID_TRANSITIONS = {
     InstanceState.INIT: {InstanceState.ACTIVE},
     InstanceState.ACTIVE: {InstanceState.SUSPENDED, InstanceState.SHUTDOWN},
-    InstanceState.SUSPENDED: {InstanceState.RESUMED, InstanceState.SHUTDOWN},
-    InstanceState.RESUMED: {InstanceState.ACTIVE},
+    InstanceState.SUSPENDED: {InstanceState.RESUMED},
+    InstanceState.RESUMED: {InstanceState.ACTIVE, InstanceState.SHUTDOWN},
     InstanceState.SHUTDOWN: set(),
 }
 
@@ -58,12 +58,8 @@ class InstanceLifecycle:
         self._state = InstanceState.ACTIVE
 
     def shutdown(self) -> None:
-        if self._state == InstanceState.ACTIVE:
-            self._state = InstanceState.SHUTDOWN
-        elif self._state == InstanceState.SUSPENDED:
-            self._state = InstanceState.SHUTDOWN
-        elif self._state != InstanceState.SHUTDOWN:
-            raise InvalidTransition(
-                f"Cannot shutdown from state {self._state.value}. "
-                "Must be ACTIVE or SUSPENDED first."
-            )
+        if self._state == InstanceState.SHUTDOWN:
+            return
+        if self._state == InstanceState.SUSPENDED:
+            self.transition(InstanceState.RESUMED)
+        self.transition(InstanceState.SHUTDOWN)
