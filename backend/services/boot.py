@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Callable
+
+import aimmh_lib
 
 from core.guardian import audit
 from core.guardian.recovery import quarantine
@@ -33,21 +34,20 @@ _SYNTH_PROMPT = (
 
 async def run_boot_sequence(inst: Any, grok_call_fn: Callable, github_token: str) -> None:
     """
-    Three-reading boot sequence:
+    Three-reading boot sequence using aimmh_lib.daisy_chain for sequential grounding.
     1. Check S9 — if 'boot_complete' already recorded, skip.
     2. Fetch three canon files from wayseer00/wayseer.github.io.
-    3. Three readings (Philosophical, Operational, Technical) via Grok.
-    4. Synthesis call.
+    3. Run three readings (Philosophical, Operational, Technical) via daisy_chain.
+    4. Synthesis call via daisy_chain.
     5. Store guardrails in S7 (permanent memory).
     6. Record 'boot_complete' in S9.
-    7. Register boot task in volatile queue.
+    Boot task (website repair) is registered separately in main.py after this completes.
     """
     existing = audit.get_events(inst, "boot_complete")
     if existing:
         return
 
     from services.github import fetch_file
-    from core.volatile_task import VolatileTask, get_queue
 
     file_contents: dict[str, str] = {}
     for path in _CANON_FILES:
@@ -62,32 +62,61 @@ async def run_boot_sequence(inst: Any, grok_call_fn: Callable, github_token: str
     ops_content = file_contents.get("a0precepts.md", "")
     tech_content = file_contents.get("canon/spec.md", "")
 
-    phil_response = await _call_grok(
-        grok_call_fn,
-        f"{phil_content}\n\n---\n{_PHIL_PROMPT}",
-        "Philosophical reading",
-        inst,
-    )
-    ops_response = await _call_grok(
-        grok_call_fn,
-        f"{ops_content}\n\n---\n{_OPS_PROMPT}",
-        "Operational reading",
-        inst,
-    )
-    tech_response = await _call_grok(
-        grok_call_fn,
-        f"{tech_content}\n\n---\n{_TECH_PROMPT}",
-        "Technical reading",
-        inst,
-    )
+    model_id = "grok-3"
 
-    synthesis_input = (
+    try:
+        phil_results = await aimmh_lib.daisy_chain(
+            call=grok_call_fn,
+            model_ids=[model_id],
+            prompt=f"{phil_content}\n\n---\n{_PHIL_PROMPT}",
+            rounds=1,
+        )
+        phil_response = phil_results[-1].content if phil_results else "[philosophical reading unavailable]"
+    except Exception as exc:
+        quarantine(exc, "boot_sequence:Philosophical reading", inst)
+        phil_response = "[philosophical reading unavailable]"
+
+    try:
+        ops_results = await aimmh_lib.daisy_chain(
+            call=grok_call_fn,
+            model_ids=[model_id],
+            prompt=f"{ops_content}\n\n---\n{_OPS_PROMPT}",
+            rounds=1,
+        )
+        ops_response = ops_results[-1].content if ops_results else "[operational reading unavailable]"
+    except Exception as exc:
+        quarantine(exc, "boot_sequence:Operational reading", inst)
+        ops_response = "[operational reading unavailable]"
+
+    try:
+        tech_results = await aimmh_lib.daisy_chain(
+            call=grok_call_fn,
+            model_ids=[model_id],
+            prompt=f"{tech_content}\n\n---\n{_TECH_PROMPT}",
+            rounds=1,
+        )
+        tech_response = tech_results[-1].content if tech_results else "[technical reading unavailable]"
+    except Exception as exc:
+        quarantine(exc, "boot_sequence:Technical reading", inst)
+        tech_response = "[technical reading unavailable]"
+
+    synthesis_prompt = (
         f"PHILOSOPHICAL READING:\n{phil_response}\n\n"
         f"OPERATIONAL READING:\n{ops_response}\n\n"
         f"TECHNICAL READING:\n{tech_response}\n\n"
         f"---\n{_SYNTH_PROMPT}"
     )
-    synthesis = await _call_grok(grok_call_fn, synthesis_input, "Synthesis", inst)
+    try:
+        synth_results = await aimmh_lib.daisy_chain(
+            call=grok_call_fn,
+            model_ids=[model_id],
+            prompt=synthesis_prompt,
+            rounds=1,
+        )
+        synthesis = synth_results[-1].content if synth_results else "[synthesis unavailable]"
+    except Exception as exc:
+        quarantine(exc, "boot_sequence:Synthesis", inst)
+        synthesis = "[synthesis unavailable]"
 
     inst.remember("iw_guardrails", synthesis)
 
@@ -100,16 +129,3 @@ async def run_boot_sequence(inst: Any, grok_call_fn: Callable, github_token: str
             "hmmm": "",
         },
     )
-
-    from core.boot_task import make_boot_task
-    queue = get_queue()
-    task = make_boot_task(inst, grok_call_fn, github_token)
-    queue.register(task)
-
-
-async def _call_grok(grok_call_fn: Callable, prompt: str, label: str, inst: Any) -> str:
-    try:
-        return await grok_call_fn("grok-3", [{"role": "user", "content": prompt}])
-    except Exception as exc:
-        quarantine(exc, f"boot_sequence:{label}", inst)
-        return f"[{label} unavailable: {exc}]"

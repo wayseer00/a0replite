@@ -134,7 +134,7 @@ async def _run_migrations() -> None:
 
 async def _boot_system_instance() -> None:
     from ptca import PTCAInstance
-    from core.grok_adapter import call_grok_text
+    from core.grok_adapter import make_grok_call_fn
     from routes.health import set_system_inst
 
     SYSTEM_USER = "a0-system"
@@ -160,10 +160,8 @@ async def _boot_system_instance() -> None:
     inst.remember("boot_epoch", int(time.time()) // 86400)
 
     github_token = os.environ.get("GITHUB_TOKEN_WAYSEER00", "")
-
-    async def grok_text_fn(model: str, messages: list) -> str:
-        api_key = os.environ.get("XAI_API_KEY", "")
-        return await call_grok_text(api_key, messages, model)
+    api_key = os.environ.get("XAI_API_KEY", "")
+    grok_text_fn = make_grok_call_fn(api_key)
 
     from services.boot import run_boot_sequence
     try:

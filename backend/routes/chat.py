@@ -75,22 +75,22 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
         guardrails = inst.recall("iw_guardrails", default=None)
         if guardrails:
             guardrails_prefix = f"{guardrails}\n\n---\n\n"
-        audit.append_event(
-            inst, "first_interaction_complete", {"hmmm": "", "session_id": payload.session_id}
-        )
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
-        emitted: list[bytes] = []
-
-        def _push(data: bytes) -> None:
-            emitted.append(data)
+        guardrails_sent = False
 
         if guardrails_prefix:
             for line in guardrails_prefix.split("\n"):
                 if line:
-                    chunk_bytes = f"data: {json.dumps({'content': line + chr(10)})}\n\n".encode()
                     emit_text(line, lambda _: None)
-                    yield chunk_bytes
+                    yield f"data: {json.dumps({'content': line + chr(10)})}\n\n".encode()
+            guardrails_sent = True
+
+        if is_first:
+            audit.append_event(
+                inst, "first_interaction_complete",
+                {"hmmm": "", "session_id": payload.session_id, "guardrails_sent": guardrails_sent}
+            )
 
         full_response = ""
         async for chunk in stream_grok(api_key, messages, _DEFAULT_MODEL):
