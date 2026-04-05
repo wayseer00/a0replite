@@ -168,6 +168,13 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
     for entry in snapshot.get("S5_CONTEXT", {}).get("entries", []):
         inst.push_context(entry)
 
+    for raw in snapshot.get("S9_AUDIT", {}).get("log", []):
+        event_name = raw.get("event", "")
+        if not event_name.startswith("guardian:"):
+            continue
+        details = {k: v for k, v in raw.items() if k not in ("ts", "event")}
+        inst.sentinel_state.s9.record(event_name, **details)
+
     return inst
 
 

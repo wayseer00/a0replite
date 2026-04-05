@@ -17,6 +17,17 @@ class OperatorVector:
     def as_dict(self) -> dict:
         return {"P": self.P, "K": self.K, "Q": self.Q, "T": self.T, "S": self.S, "total": self.total}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "OperatorVector":
+        return cls(
+            P=int(d.get("P", 0)),
+            K=int(d.get("K", 0)),
+            Q=int(d.get("Q", 0)),
+            T=int(d.get("T", 0)),
+            S=int(d.get("S", 0)),
+            total=int(d.get("total", 0)),
+        )
+
 
 def aggregate_turn(bone_tokens: list[BoneToken]) -> OperatorVector:
     """Count bone tokens per PKQTS family and return an OperatorVector."""

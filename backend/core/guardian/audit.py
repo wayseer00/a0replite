@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 from core.invariants import require_hmmm
 
+_GUARDIAN_PREFIX = "guardian:"
+
 
 def _hash_event(prev_hash: str, event: dict) -> str:
     """SHA-256 of prev_hash + deterministic JSON of event."""
@@ -16,14 +18,15 @@ def _hash_event(prev_hash: str, event: dict) -> str:
 
 def append_event(inst: Any, event_type: str, payload: dict) -> None:
     """
-    Append a guardian audit event to PTCA S5 context.
+    Append a guardian audit event to PTCA S9 via s9.record().
     Enforces hmmm invariant. Builds SHA-256 hash chain: each event
     commits to the hash of all preceding events for tamper evidence.
-    Events are stored as S5 context entries with key '_audit_<event_type>'.
+    Event name is prefixed 'guardian:<event_type>' in S9 to namespace
+    guardian events from internal ptca events.
     """
     require_hmmm(payload, context=f"audit.append_event:{event_type}")
 
-    existing = _read_context_events(inst)
+    existing = get_events(inst)
     prev_hash = existing[-1].get("audit_hash", "0" * 64) if existing else "0" * 64
 
     entry = {
@@ -33,34 +36,27 @@ def append_event(inst: Any, event_type: str, payload: dict) -> None:
     }
     entry["audit_hash"] = _hash_event(prev_hash, entry)
 
-    inst.push_context({"key": f"_audit_{event_type}", "val": entry})
-
-
-def _read_context_events(inst: Any) -> list[dict]:
-    """Read all guardian audit events from S5 context entries."""
-    context_entries = getattr(inst, "context_entries", None)
-    if context_entries is None:
-        return []
-    events = []
-    for entry in context_entries:
-        if isinstance(entry, dict) and entry.get("key", "").startswith("_audit_"):
-            val = entry.get("val", {})
-            if isinstance(val, dict) and "event_type" in val:
-                events.append(val)
-    return sorted(events, key=lambda e: e.get("timestamp", 0))
+    details = {k: v for k, v in entry.items() if k != "event_type"}
+    inst.sentinel_state.s9.record(f"{_GUARDIAN_PREFIX}{event_type}", **details)
 
 
 def get_events(inst: Any, event_type: Optional[str] = None) -> list[dict]:
-    """Read guardian audit events from S5 context entries."""
-    all_events = _read_context_events(inst)
-    if event_type is None:
-        return all_events
-    return [
-        e for e in all_events
-        if e.get("event_type") == event_type
-    ]
+    """Read guardian audit events from PTCA S9 log."""
+    log = inst.sentinel_state.s9.log
+    results = []
+    for raw in log:
+        event_name = raw.get("event", "")
+        if not event_name.startswith(_GUARDIAN_PREFIX):
+            continue
+        actual_type = event_name[len(_GUARDIAN_PREFIX):]
+        if event_type is not None and actual_type != event_type:
+            continue
+        entry = {k: v for k, v in raw.items() if k not in ("ts", "event")}
+        entry["event_type"] = actual_type
+        results.append(entry)
+    return results
 
 
 def has_event(inst: Any, event_type: str) -> bool:
-    """Return True if S5 context contains at least one guardian audit event of this type."""
+    """Return True if S9 contains at least one guardian audit event of this type."""
     return len(get_events(inst, event_type)) > 0

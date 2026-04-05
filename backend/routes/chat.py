@@ -127,16 +127,24 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
 
             behavioral_vec = compute_behavioral_vector(round_aggs, [user_op_vec, response_op_vec], canon)
 
-            op_history: list[OperatorVector] = inst.recall("_op_history", default=[])
-            bv_history: list[BehavioralVector] = inst.recall("_bv_history", default=[])
+            raw_op_history: list[dict] = inst.recall("_op_history", default=[])
+            raw_bv_history: list[dict] = inst.recall("_bv_history", default=[])
+            op_history: list[OperatorVector] = [
+                OperatorVector.from_dict(d) if isinstance(d, dict) else d
+                for d in raw_op_history
+            ]
+            bv_history: list[BehavioralVector] = [
+                BehavioralVector.from_dict(d) if isinstance(d, dict) else d
+                for d in raw_bv_history
+            ]
             op_history = (op_history + [user_op_vec])[-20:]
             bv_history = (bv_history + [behavioral_vec])[-20:]
             bridge = compute_bridge(op_history, bv_history)
 
             inst.remember("last_edcm_snapshot", behavioral_vec.as_dict())
             inst.remember("last_bridge_matrix", bridge.as_dict())
-            inst.remember("_op_history", op_history)
-            inst.remember("_bv_history", bv_history)
+            inst.remember("_op_history", [ov.as_dict() for ov in op_history])
+            inst.remember("_bv_history", [bv.as_dict() for bv in bv_history])
             inst.push_context({"key": "last_message_turn_id", "val": turn_id})
 
             full_assistant_snapshot = {**behavioral_vec.as_dict(), "bridge": bridge.as_dict()}

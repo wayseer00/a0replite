@@ -38,6 +38,25 @@ class BehavioralVector:
             "hmmm": self.hmmm,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "BehavioralVector":
+        return cls(
+            R=float(d.get("R", 0.0)),
+            L=float(d.get("L", 0.0)),
+            N=float(d.get("N", 0.0)),
+            E=float(d.get("E", 0.0)),
+            C=float(d["C"]) if d.get("C") is not None else None,
+            D=float(d["D"]) if d.get("D") is not None else None,
+            O=float(d["O"]) if d.get("O") is not None else None,
+            F=None,
+            I=None,
+            partial_metrics=list(d.get("partial_metrics", [])),
+            requires_embeddings=bool(d.get("requires_embeddings", True)),
+            data_version=str(d.get("data_version", "1.0.0")),
+            source_files=tuple(d.get("source_files", _SOURCE_FILES)),
+            hmmm=str(d.get("hmmm", "")),
+        )
+
 
 @dataclass
 class BridgeMatrix:
