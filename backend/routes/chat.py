@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from core.edcm.bone_match import match_bones
 from core.edcm.data_loader import get_canon
-from core.edcm.metrics import BehavioralVector, compute_behavioral_vector
+from core.edcm.metrics import BehavioralVector, compute_behavioral_vector, compute_bridge
 from core.edcm.morph import segment
 from core.edcm.normalize import normalize
 from core.edcm.parser import parse_utterances
@@ -102,10 +102,22 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
                 marker_hits, total_turns=len(conversation.turns), total_tokens=len(tokens)
             )
             behavioral_vec = compute_behavioral_vector(round_aggs, [operator_vec], canon)
+
+            response_normalized, response_tokens = normalize(full_response, canon)
+            response_bone_tokens = []
+            for t in response_tokens:
+                segs = segment(t, canon)
+                response_bone_tokens.extend(match_bones(segs, canon))
+            response_operator_vec = aggregate_turn(response_bone_tokens)
+
+            bridge = compute_bridge(operator_vec, response_operator_vec, canon)
+
             inst.remember("last_edcm_snapshot", behavioral_vec.as_dict())
+            inst.remember("last_bridge_matrix", bridge.as_dict())
             inst.push_context({"key": "last_message_turn_id", "val": turn_id})
 
-            msg_id = str(uuid.uuid4())
+            full_snapshot = {**behavioral_vec.as_dict(), "bridge": bridge.as_dict()}
+
             await db.execute(
                 """
                 INSERT INTO chat_messages
@@ -121,8 +133,8 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
                   (message_id, session_id, role, content, turn_id, edcm_snapshot)
                 VALUES ($1,$2,$3,$4,$5,$6)
                 """,
-                msg_id, payload.session_id, "assistant", full_response, turn_id,
-                json.dumps(behavioral_vec.as_dict()),
+                str(uuid.uuid4()), payload.session_id, "assistant", full_response, turn_id,
+                json.dumps(full_snapshot),
             )
             await persist_session(payload.session_id, inst, db)
         except Exception as exc:

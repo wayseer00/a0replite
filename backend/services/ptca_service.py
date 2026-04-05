@@ -31,7 +31,7 @@ def _get_ikm() -> bytes:
 
 async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstance", str]:
     """
-    Create a new PTCAInstance session, seal it, store in DB.
+    Create a new PTCAInstance session, seal it, store all PCEA fields in DB.
     Returns (inst, session_id).
     """
     session_id = _new_session_id()
@@ -68,9 +68,13 @@ async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstanc
     await db.execute(
         """
         INSERT INTO chat_sessions
-          (session_id, user_id, tier, pcea_sealed_blob, pcea_wrapped_key,
-           pcea_epoch, pcea_key_id, pcea_gist_id_1, pcea_gist_id_2, expires_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          (session_id, user_id, tier,
+           pcea_sealed_blob, pcea_wrapped_key,
+           pcea_epoch, pcea_key_id,
+           pcea_gist_id_1, pcea_gist_id_2,
+           pcea_nonce, pcea_aad, pcea_commitment,
+           expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         """,
         session_id,
         user_id,
@@ -81,6 +85,9 @@ async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstanc
         key_id,
         seal_result["gist_id_1"],
         seal_result["gist_id_2"],
+        seal_result["nonce"],
+        seal_result["aad"],
+        seal_result["commitment"],
         expires_at,
     )
 
@@ -99,11 +106,15 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
     token1, token2 = _get_tokens()
     ikm = _get_ikm()
 
+    nonce = row.get("pcea_nonce") or ""
+    aad = row.get("pcea_aad") or f"{row['pcea_epoch']}:{row['pcea_key_id']}:{NODE_ID}"
+    commitment = row.get("pcea_commitment") or ""
+
     from core.crypto.session_crypto import unseal_session
     snapshot = await unseal_session(
         sealed_blob=row["pcea_sealed_blob"].decode(),
-        nonce=row.get("pcea_nonce", ""),
-        aad=row.get("pcea_aad", f"{row['pcea_epoch']}:{row['pcea_key_id']}:{NODE_ID}"),
+        nonce=nonce,
+        aad=aad,
         wrapped_key=row["pcea_wrapped_key"].decode(),
         gist_id_1=row["pcea_gist_id_1"],
         gist_id_2=row["pcea_gist_id_2"],
@@ -113,7 +124,7 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
         ikm=ikm,
         github_token_1=token1,
         github_token_2=token2,
-        commitment=row.get("pcea_commitment", ""),
+        commitment=commitment,
     )
 
     inst = PTCAInstance(
@@ -130,7 +141,7 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
 
 
 async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> None:
-    """Seal current PTCA state and update the DB row."""
+    """Seal current PTCA state and update the DB row with all PCEA fields."""
     epoch = int(time.time()) // 86400
     key_id = f"key-{epoch}"
     token1, token2 = _get_tokens()
@@ -159,9 +170,12 @@ async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> Non
     await db.execute(
         """
         UPDATE chat_sessions SET
-          pcea_sealed_blob=$1, pcea_wrapped_key=$2, pcea_epoch=$3, pcea_key_id=$4,
-          pcea_gist_id_1=$5, pcea_gist_id_2=$6, last_active_at=NOW()
-        WHERE session_id=$7
+          pcea_sealed_blob=$1, pcea_wrapped_key=$2,
+          pcea_epoch=$3, pcea_key_id=$4,
+          pcea_gist_id_1=$5, pcea_gist_id_2=$6,
+          pcea_nonce=$7, pcea_aad=$8, pcea_commitment=$9,
+          last_active_at=NOW()
+        WHERE session_id=$10
         """,
         seal_result["sealed_blob"].encode(),
         seal_result["wrapped_key"].encode(),
@@ -169,5 +183,8 @@ async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> Non
         key_id,
         seal_result["gist_id_1"],
         seal_result["gist_id_2"],
+        seal_result["nonce"],
+        seal_result["aad"],
+        seal_result["commitment"],
         session_id,
     )

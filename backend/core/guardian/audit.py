@@ -1,19 +1,37 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from typing import Any, Optional
 
 from core.invariants import require_hmmm
 
 
+def _hash_event(prev_hash: str, event: dict) -> str:
+    """SHA-256 of prev_hash + deterministic JSON of event."""
+    payload = prev_hash + json.dumps(event, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def append_event(inst: Any, event_type: str, payload: dict) -> None:
-    """Append an event to PTCA S9 via push_context. Enforces hmmm invariant."""
+    """
+    Append an event to PTCA S9 via push_context.
+    Enforces hmmm invariant. Builds SHA-256 hash chain: each event
+    commits to the hash of all preceding events.
+    """
     require_hmmm(payload, context=f"audit.append_event:{event_type}")
+
+    tail = inst.audit_tail(n=1)
+    prev_hash = tail[0].get("audit_hash", "0" * 64) if tail else "0" * 64
+
     entry = {
         "event_type": event_type,
         "timestamp": time.time(),
         **payload,
     }
+    entry["audit_hash"] = _hash_event(prev_hash, entry)
+
     inst.push_context({"key": f"_audit_{event_type}", "val": entry})
 
 

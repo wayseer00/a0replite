@@ -17,7 +17,7 @@ class CanonLoadError(Exception):
 class CanonicalData:
     word_to_primary: dict[str, str]
     word_to_families: dict[str, list[str]]
-    multiword_joins: list[tuple[str, str, list[str]]]
+    multiword_joins: list[tuple[str, str, str, list[str]]]
     inflectional_affixes: list[dict]
     derivational_prefixes: list[dict]
     derivational_suffixes: list[dict]
@@ -46,7 +46,7 @@ def _validate_meta(data: dict, filename: str) -> str:
 
 def _build_word_lookups(
     words_data: dict,
-) -> tuple[dict[str, str], dict[str, list[str]], list[tuple[str, str, list[str]]]]:
+) -> tuple[dict[str, str], dict[str, list[str]], list[tuple[str, str, str, list[str]]]]:
     word_to_primary: dict[str, str] = {}
     word_to_families: dict[str, list[str]] = {}
 
@@ -57,13 +57,14 @@ def _build_word_lookups(
         word_to_primary[w] = entry.get("primary", "S")
         word_to_families[w] = entry.get("families", [entry.get("primary", "S")])
 
-    joins: list[tuple[str, str, list[str]]] = []
+    joins: list[tuple[str, str, str, list[str]]] = []
     for entry in words_data.get("multiword_joins", []):
         joined = entry.get("joined", "").lower()
-        if not joined:
+        original = entry.get("original", "").lower()
+        if not joined or not original:
             continue
-        joins.append((joined, entry.get("primary", "S"), entry.get("families", [])))
-    joins.sort(key=lambda t: len(t[0]), reverse=True)
+        joins.append((joined, original, entry.get("primary", "S"), entry.get("families", [])))
+    joins.sort(key=lambda t: len(t[1]), reverse=True)
     return word_to_primary, word_to_families, joins
 
 
@@ -73,9 +74,9 @@ def _build_affix_lookups(
     infl = affixes_data.get("inflectional", {}).get("affixes", [])
     dp = affixes_data.get("derivational_prefixes", {}).get("affixes", [])
     ds = affixes_data.get("derivational_suffixes", {}).get("affixes", [])
-    infl_sorted = sorted(infl, key=lambda a: len(a.get("affix", "")), reverse=True)
-    dp_sorted = sorted(dp, key=lambda a: len(a.get("affix", "")), reverse=True)
-    ds_sorted = sorted(ds, key=lambda a: len(a.get("affix", "")), reverse=True)
+    infl_sorted = sorted(infl, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
+    dp_sorted = sorted(dp, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
+    ds_sorted = sorted(ds, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
     return infl_sorted, dp_sorted, ds_sorted
 
 
