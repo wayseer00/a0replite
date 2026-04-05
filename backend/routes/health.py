@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
-router = APIRouter(prefix="/api", tags=["health"])
+router = APIRouter(tags=["health"])
 
 _system_inst: Optional[object] = None
 
@@ -16,8 +15,7 @@ def set_system_inst(inst: object) -> None:
     _system_inst = inst
 
 
-@router.get("/health")
-async def health() -> dict:
+def _health_payload() -> dict:
     from core.edcm.data_loader import get_canon
     try:
         canon = get_canon()
@@ -45,11 +43,21 @@ async def health() -> dict:
     }
 
 
-@router.get("/")
+@router.get("/health")
+async def health_bare() -> dict:
+    return _health_payload()
+
+
+@router.get("/api/health")
+async def health_api() -> dict:
+    return _health_payload()
+
+
+@router.get("/api/")
 async def api_root() -> dict:
     return {
         "service": "a0replite",
         "description": "Grounded AI instance — The Interdependent Way",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "hmmm": "",
     }

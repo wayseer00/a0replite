@@ -29,10 +29,18 @@ def _get_ikm() -> bytes:
     raise RuntimeError("PCEA_IKM not set or invalid — cannot seal/unseal sessions")
 
 
-async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstance", str]:
+async def create_session(
+    user_id: str,
+    tier: str,
+    db: Any,
+    *,
+    approved: bool = False,
+) -> tuple["PTCAInstance", str]:
     """
     Create a new PTCAInstance session, seal it, store all PCEA fields in DB.
     Returns (inst, session_id).
+    Operator-tier system sessions pass approved=True so S4 gates pass without
+    requiring a separate pre_authorize call at startup.
     """
     session_id = _new_session_id()
     epoch = int(time.time()) // 86400
@@ -42,7 +50,7 @@ async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstanc
         model_id=MODEL_ID,
         caller_id=user_id,
         session_id=session_id,
-        approved=False,
+        approved=approved,
     )
     inst.remember("user_id", user_id)
     inst.remember("tier", tier)

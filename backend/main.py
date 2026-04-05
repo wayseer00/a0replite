@@ -175,9 +175,7 @@ async def _boot_system_instance() -> None:
     app.state.system_inst = inst
 
     from core.boot_task import make_boot_task
-    from core.guardian.approval_gate import pre_authorize_boot
     from core.volatile_task import get_queue
-    pre_authorize_boot(inst)
     boot_task = make_boot_task(inst, grok_text_fn, github_token)
     queue = get_queue()
     queue.register(boot_task)
@@ -186,6 +184,8 @@ async def _boot_system_instance() -> None:
 
 async def _create_system_inst(user_id: str, db):
     from services.ptca_service import create_session
-    inst, session_id = await create_session(user_id=user_id, tier="operator", db=db)
+    inst, session_id = await create_session(
+        user_id=user_id, tier="operator", db=db, approved=True
+    )
     log.info("System PTCAInstance created: %s", session_id)
     return inst, session_id
