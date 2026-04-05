@@ -118,16 +118,30 @@ def _build_markers(markers_data: dict) -> dict[str, dict]:
 
 def load_canonical_data() -> CanonicalData:
     """
-    Load canonical EDCM bone data from the edcmbone zip.
-    Validates _meta.version on all four files. Raises CanonLoadError on failure.
+    Load canonical EDCM bone data.
+
+    The edcmbone package (installed from The-Interdependency/edcmbone) ships Python
+    scaffolding and the canonical data zip at backend/data/edcmbone_canon_data_v1.zip.
+    We first attempt to locate data via the installed package's __file__ path, then
+    fall back to the bundled zip path. All four JSON files are validated against
+    _meta.version before use. Raises CanonLoadError on failure.
     """
-    if not _ZIP_PATH.exists():
+    try:
+        import edcmbone as _edcmbone_pkg
+        _pkg_dir = Path(_edcmbone_pkg.__file__).parent.parent
+        _candidate = _pkg_dir / "edcmbone_canon_data_v1.zip"
+        if not _candidate.exists():
+            _candidate = _ZIP_PATH
+    except ImportError:
+        _candidate = _ZIP_PATH
+
+    if not _candidate.exists():
         raise CanonLoadError(
-            f"edcmbone canonical zip not found at {_ZIP_PATH}. "
+            f"edcmbone canonical zip not found at {_candidate}. "
             "Cannot start without canonical data."
         )
 
-    with zipfile.ZipFile(_ZIP_PATH) as zf:
+    with zipfile.ZipFile(_candidate) as zf:
         words_data = _load_json_from_zip(zf, "bones_words_v1.json")
         affixes_data = _load_json_from_zip(zf, "bones_affixes_v1.json")
         punct_data = _load_json_from_zip(zf, "bones_punct_v1.json")

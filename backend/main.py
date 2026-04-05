@@ -42,10 +42,11 @@ from core.invariants import InvariantViolation
 from core.laws import LawViolation
 from routes.chat import router as chat_router
 from routes.content import router as content_router
+from routes.guardian import router as guardian_router
 from routes.health import router as health_router
 from routes.payments import router as payments_router
 
-app = FastAPI(title="a0replite", version="0.1.0", docs_url="/api/docs", redoc_url=None)
+app = FastAPI(title="a0replite", version="0.3.0", docs_url="/api/docs", redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,6 +60,7 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(content_router)
 app.include_router(payments_router)
+app.include_router(guardian_router)
 
 
 @app.exception_handler(InvariantViolation)
@@ -170,6 +172,13 @@ async def _boot_system_instance() -> None:
         log.error("Boot sequence error: %s", exc)
 
     app.state.system_inst = inst
+
+    from core.boot_task import make_boot_task
+    from core.volatile_task import get_queue
+    boot_task = make_boot_task(inst, grok_text_fn, github_token)
+    queue = get_queue()
+    queue.register(boot_task)
+    asyncio.create_task(queue.run(boot_task.id, inst))
 
 
 async def _create_system_inst(user_id: str, db):

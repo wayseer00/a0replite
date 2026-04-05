@@ -91,6 +91,20 @@ async def create_session(user_id: str, tier: str, db: Any) -> tuple["PTCAInstanc
         expires_at,
     )
 
+    await db.executemany(
+        """
+        INSERT INTO pcea_shares
+          (session_id, sentinel_id, gist_id, epoch, key_id, index_in_scheme, commitment)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (session_id, sentinel_id, epoch, key_id) DO UPDATE
+          SET gist_id=EXCLUDED.gist_id, commitment=EXCLUDED.commitment, updated_at=NOW()
+        """,
+        [
+            (session_id, "wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
+            (session_id, "vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
+        ],
+    )
+
     return inst, session_id
 
 
@@ -187,4 +201,18 @@ async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> Non
         seal_result["aad"],
         seal_result["commitment"],
         session_id,
+    )
+
+    await db.executemany(
+        """
+        INSERT INTO pcea_shares
+          (session_id, sentinel_id, gist_id, epoch, key_id, index_in_scheme, commitment)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (session_id, sentinel_id, epoch, key_id) DO UPDATE
+          SET gist_id=EXCLUDED.gist_id, commitment=EXCLUDED.commitment, updated_at=NOW()
+        """,
+        [
+            (session_id, "wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
+            (session_id, "vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
+        ],
     )

@@ -15,7 +15,7 @@ _VALID_TRANSITIONS = {
     InstanceState.INIT: {InstanceState.ACTIVE},
     InstanceState.ACTIVE: {InstanceState.SUSPENDED, InstanceState.SHUTDOWN},
     InstanceState.SUSPENDED: {InstanceState.RESUMED},
-    InstanceState.RESUMED: {InstanceState.ACTIVE, InstanceState.SHUTDOWN},
+    InstanceState.RESUMED: {InstanceState.ACTIVE},
     InstanceState.SHUTDOWN: set(),
 }
 
@@ -42,7 +42,9 @@ class InstanceLifecycle:
         self._state = target
 
     def activate(self) -> None:
-        if self._state in (InstanceState.INIT, InstanceState.RESUMED):
+        if self._state == InstanceState.INIT:
+            self._state = InstanceState.ACTIVE
+        elif self._state == InstanceState.RESUMED:
             self._state = InstanceState.ACTIVE
 
     def suspend(self) -> None:
@@ -50,8 +52,18 @@ class InstanceLifecycle:
 
     def resume(self) -> None:
         self.transition(InstanceState.RESUMED)
+
+    def resume_and_activate(self) -> None:
+        self.transition(InstanceState.RESUMED)
         self._state = InstanceState.ACTIVE
 
     def shutdown(self) -> None:
-        if self._state != InstanceState.SHUTDOWN:
+        if self._state == InstanceState.ACTIVE:
             self._state = InstanceState.SHUTDOWN
+        elif self._state == InstanceState.SUSPENDED:
+            self._state = InstanceState.SHUTDOWN
+        elif self._state != InstanceState.SHUTDOWN:
+            raise InvalidTransition(
+                f"Cannot shutdown from state {self._state.value}. "
+                "Must be ACTIVE or SUSPENDED first."
+            )

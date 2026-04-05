@@ -28,10 +28,12 @@ class ConversationStructure:
 
 def parse_utterances(utterances: list[dict]) -> ConversationStructure:
     """
-    Parse utterances into Turns and Rounds.
-    - Merge consecutive same-actor utterances into one Turn (UNK actors never merged).
-    - Turn IDs: t0000, t0001, ...
-    - Round: starts at actor X's turn; ends just before X's next turn. If X never speaks again, ends at last turn.
+    Parse utterances into Turns and Rounds per the edcmbone spec.
+    - Merge consecutive same-actor utterances into one Turn (UNK actors are never merged).
+    - Turn IDs: t0000, t0001, …
+    - Round: starts at the first turn of that round's opening_actor; ends just before
+      that same actor's NEXT occurrence. Each new round's opening_actor is determined
+      fresh from the actor of the first turn in that round — NOT fixed globally.
     """
     if not utterances:
         return ConversationStructure(turns=[], rounds=[])
@@ -95,35 +97,41 @@ def _build_turns(utterances: list[dict]) -> list[Turn]:
 
 
 def _build_rounds(turns: list[Turn]) -> list[Round]:
+    """
+    Build rounds where each round's opening_actor is determined from the FIRST TURN
+    of that round. A round ends when its opening_actor appears again (the next
+    occurrence of that actor starts a new round).
+
+    This means:
+    - Round 0 opens with turns[0].actor_id (e.g. "user")
+    - Round 0 ends just before the next occurrence of "user"
+    - Round 1 opens with whoever starts it (which may be "user" again or "assistant")
+    """
     if not turns:
         return []
 
     rounds: list[Round] = []
     round_idx = 0
-    opening_actor = turns[0].actor_id
-
     start_i = 0
-    for i in range(1, len(turns)):
-        if turns[i].actor_id == opening_actor:
-            round_turns = turns[start_i:i]
-            rounds.append(
-                Round(
-                    round_id=f"r{round_idx:04d}",
-                    turns=round_turns,
-                    opening_actor=opening_actor,
-                )
-            )
-            round_idx += 1
-            start_i = i
 
-    final_round = turns[start_i:]
-    if final_round:
+    while start_i < len(turns):
+        opening_actor = turns[start_i].actor_id
+
+        end_i = start_i + 1
+        while end_i < len(turns):
+            if turns[end_i].actor_id == opening_actor:
+                break
+            end_i += 1
+
+        round_turns = turns[start_i:end_i]
         rounds.append(
             Round(
                 round_id=f"r{round_idx:04d}",
-                turns=final_round,
-                opening_actor=final_round[0].actor_id,
+                turns=round_turns,
+                opening_actor=opening_actor,
             )
         )
+        round_idx += 1
+        start_i = end_i
 
     return rounds
