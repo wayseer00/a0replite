@@ -20,6 +20,9 @@ _REQUIRED_ENV = [
     "GITHUB_TOKEN_VAULT2",
     "PCEA_IKM",
     "DATABASE_URL",
+]
+
+_RECOMMENDED_ENV = [
     "GUARDIAN_OPERATOR_KEY",
 ]
 
@@ -29,6 +32,9 @@ def _check_env() -> None:
     if missing:
         log.critical("STARTUP FAIL — missing required env vars: %s", ", ".join(missing))
         sys.exit(1)
+    for key in _RECOMMENDED_ENV:
+        if not os.environ.get(key, "").strip():
+            log.warning("Recommended env var not set: %s — guardian endpoints will be unavailable", key)
 
 
 def _normalize_db_url(url: str) -> str:

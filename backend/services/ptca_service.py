@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from ptca import PTCAInstance
@@ -71,7 +72,11 @@ async def create_session(
         github_token_2=token2,
     )
 
-    expires_at = time.time() + 7 * 86400 if tier == "seeker" else None
+    expires_at = (
+        datetime.fromtimestamp(time.time() + 7 * 86400, tz=timezone.utc)
+        if tier == "seeker"
+        else None
+    )
 
     await db.execute(
         """
