@@ -132,13 +132,15 @@ async def _run_migrations() -> None:
         )
         stdout, stderr = await asyncio.wait_for(result.communicate(), timeout=60)
         if result.returncode != 0:
-            log.error("Alembic failed (rc=%d): %s", result.returncode, stderr.decode())
-        else:
-            log.info("Alembic migrations applied: %s", stdout.decode().strip() or "up to date")
+            log.critical("Alembic failed (rc=%d): %s", result.returncode, stderr.decode())
+            sys.exit(1)
+        log.info("Alembic migrations applied: %s", stdout.decode().strip() or "up to date")
     except asyncio.TimeoutError:
-        log.error("Alembic migration timed out after 60s")
+        log.critical("Alembic migration timed out after 60s — aborting startup")
+        sys.exit(1)
     except Exception as exc:
-        log.error("Alembic migration error: %s", exc)
+        log.critical("Alembic migration error: %s — aborting startup", exc)
+        sys.exit(1)
 
 
 async def _boot_system_instance() -> None:

@@ -64,19 +64,38 @@ def _build_word_lookups(
         if not joined or not original:
             continue
         joins.append((joined, original, entry.get("primary", "S"), entry.get("families", [])))
-    joins.sort(key=lambda t: len(t[1]), reverse=True)
+    # Sort longest-match-first: primary key = token count in original phrase,
+    # secondary key = character length.  Both descending so most specific entry wins.
+    joins.sort(key=lambda t: (len(t[1].split()), len(t[1])), reverse=True)
     return word_to_primary, word_to_families, joins
+
+
+def _normalize_affix(entry: dict, default_type: str) -> dict:
+    """Return a copy of an affix entry with a guaranteed `type` key."""
+    out = dict(entry)
+    if "type" not in out:
+        out["type"] = default_type
+    if "affix" not in out:
+        out["affix"] = ""
+    return out
+
+
+def _affix_bare_len(a: dict) -> int:
+    return len(a.get("affix", "").lstrip("-").rstrip("-"))
 
 
 def _build_affix_lookups(
     affixes_data: dict,
 ) -> tuple[list[dict], list[dict], list[dict]]:
-    infl = affixes_data.get("inflectional", {}).get("affixes", [])
-    dp = affixes_data.get("derivational_prefixes", {}).get("affixes", [])
-    ds = affixes_data.get("derivational_suffixes", {}).get("affixes", [])
-    infl_sorted = sorted(infl, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
-    dp_sorted = sorted(dp, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
-    ds_sorted = sorted(ds, key=lambda a: len(a.get("affix", "").lstrip("-").rstrip("-")), reverse=True)
+    raw_infl = affixes_data.get("inflectional", {}).get("affixes", [])
+    raw_dp = affixes_data.get("derivational_prefixes", {}).get("affixes", [])
+    raw_ds = affixes_data.get("derivational_suffixes", {}).get("affixes", [])
+    infl = [_normalize_affix(a, "suffix") for a in raw_infl]
+    dp = [_normalize_affix(a, "prefix") for a in raw_dp]
+    ds = [_normalize_affix(a, "suffix") for a in raw_ds]
+    infl_sorted = sorted(infl, key=_affix_bare_len, reverse=True)
+    dp_sorted = sorted(dp, key=_affix_bare_len, reverse=True)
+    ds_sorted = sorted(ds, key=_affix_bare_len, reverse=True)
     return infl_sorted, dp_sorted, ds_sorted
 
 

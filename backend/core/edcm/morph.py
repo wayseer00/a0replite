@@ -4,14 +4,21 @@ from core.edcm.data_loader import CanonicalData
 
 _VOWELS = frozenset("aeiou")
 
+# Families that accept -s/-es as productive pluralization (noun) or
+# third-person singular (verb).  All content-word bone families qualify.
+_NOUN_VERB_FAMILIES = frozenset({"P", "K", "Q", "T", "S"})
+
+# Raw affix strings (with hyphens) that represent the nominal/verbal -s suffix.
+_S_INFLECTIONS = frozenset({"-s", "-es", "-'s"})
+
 
 def _has_vowel(s: str) -> bool:
     return any(c in _VOWELS for c in s)
 
 
 def _bare_affix(affix: str) -> str:
-    """Strip leading/trailing hyphens from affix notation."""
-    return affix.lstrip("-").rstrip("-").rstrip("'")
+    """Strip leading/trailing hyphens from affix notation (NOT apostrophes)."""
+    return affix.lstrip("-").rstrip("-")
 
 
 def segment(token: str, canon: CanonicalData) -> list[str]:
@@ -63,8 +70,15 @@ def segment(token: str, canon: CanonicalData) -> list[str]:
             continue
         if remaining.endswith(affix) and len(remaining) > len(affix):
             stem = remaining[: -len(affix)]
-            if raw_affix.startswith("-s") or raw_affix in ("-s", "-es"):
-                accept = stem in canon.word_to_primary or (_has_vowel(stem) and len(stem) >= 2)
+            if raw_affix in _S_INFLECTIONS:
+                # Noun/verb disambiguation for -s/-es/-'s:
+                # 1. If stem is a recognized canon word, accept only if its
+                #    primary bone family is a content-word family (noun or verb).
+                # 2. If stem is unknown, apply general vowel heuristic.
+                if stem in canon.word_to_primary:
+                    accept = canon.word_to_primary[stem] in _NOUN_VERB_FAMILIES
+                else:
+                    accept = _has_vowel(stem) and len(stem) >= 2
             else:
                 accept = _has_vowel(stem) and len(stem) >= 2
             if accept:

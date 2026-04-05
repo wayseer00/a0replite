@@ -78,6 +78,26 @@ def _safe_ratio(num: float, denom: float) -> float:
     return num / denom if denom else 0.0
 
 
+def _commitment_tier(ov: OperatorVector) -> int:
+    """
+    Map an OperatorVector to a commitment tier: 0=low, 1=medium, 2=high.
+
+    T (task-commitment bones) and K (know-do bones) drive the tier:
+      high   — T ratio ≥ 0.40 or K ratio ≥ 0.50
+      medium — T ratio ≥ 0.20 or K ratio ≥ 0.25
+      low    — otherwise (including empty turn)
+    """
+    if ov.total == 0:
+        return 0
+    t_ratio = ov.T / ov.total
+    k_ratio = ov.K / ov.total
+    if t_ratio >= 0.40 or k_ratio >= 0.50:
+        return 2
+    if t_ratio >= 0.20 or k_ratio >= 0.25:
+        return 1
+    return 0
+
+
 def _pearson(xs: list[float], ys: list[float]) -> float:
     """Pearson correlation between two equal-length lists."""
     n = len(xs)
@@ -117,17 +137,14 @@ def compute_behavioral_vector(
     n_num = round_aggs.count("N", "resolution")
     N = _safe_ratio(n_num, max(1.0, L))
 
-    tier_map = {"low": 0, "medium": 1, "high": 2}
-    prev_tier = -1
-    escalation = 0
-    for metric_type in ("commitment_low", "commitment_medium", "commitment_high"):
-        tier_label = metric_type.split("_", 1)[1]
-        tier_val = tier_map.get(tier_label, 0)
-        count = round_aggs.count("E", metric_type) or round_aggs.total_for_metric("E")
-        if count > 0 and tier_val > prev_tier:
-            escalation += max(0, tier_val - prev_tier)
-            prev_tier = tier_val
-    E = float(escalation)
+    # E: count per-turn commitment tier escalations across the turn sequence.
+    # Tier is derived from each OperatorVector's T/K family ratios; escalation
+    # is an upward tier transition between consecutive turns.
+    if len(operator_vectors) >= 2:
+        tiers = [_commitment_tier(ov) for ov in operator_vectors]
+        E = float(sum(1 for i in range(1, len(tiers)) if tiers[i] > tiers[i - 1]))
+    else:
+        E = 0.0
 
     c_num = round_aggs.count("C", "explicit_contradiction") + round_aggs.count("C", "self_correction")
     C = _safe_ratio(c_num, total_turns)

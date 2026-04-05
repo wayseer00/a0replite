@@ -38,8 +38,13 @@ def law8_capability_not_authority(gate_name: str, s4_approved: bool) -> None:
 
 
 def law11_logs_not_memory(task_id: str, volatile_queue: dict, db_ids: set) -> None:
-    """Law 11: a volatile task that completed must not persist in committed DB."""
-    if task_id in db_ids:
+    """Law 11: a volatile task that completed must not persist in committed DB.
+
+    Both conditions must hold: the task is a log-only (volatile) artifact AND it
+    exists in the committed store.  Checking only the DB side would raise a false
+    positive for tasks that are legitimately persisted via a separate commit path.
+    """
+    if task_id in volatile_queue and task_id in db_ids:
         raise LawViolation(
             f"Law 11: task {task_id!r} is a log artifact (volatile) but found in memory store"
         )

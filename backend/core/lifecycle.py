@@ -15,7 +15,7 @@ _VALID_TRANSITIONS = {
     InstanceState.INIT: {InstanceState.ACTIVE},
     InstanceState.ACTIVE: {InstanceState.SUSPENDED, InstanceState.SHUTDOWN},
     InstanceState.SUSPENDED: {InstanceState.RESUMED},
-    InstanceState.RESUMED: {InstanceState.ACTIVE, InstanceState.SHUTDOWN},
+    InstanceState.RESUMED: {InstanceState.ACTIVE},
     InstanceState.SHUTDOWN: set(),
 }
 
