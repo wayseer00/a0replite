@@ -9,6 +9,7 @@ dependencies = [
     "cryptography>=42.0",
     "fastapi>=0.135.3",
     "httpx>=0.28.1",
+    "psycopg2-binary>=2.9.10",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
     "sqlalchemy[asyncio]>=2.0.49",

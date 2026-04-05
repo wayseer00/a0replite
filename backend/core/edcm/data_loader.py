@@ -81,10 +81,17 @@ def _build_affix_lookups(
 
 def _build_punct_rules(punct_data: dict) -> dict[str, str]:
     rules: dict[str, str] = {}
-    for entry in punct_data.get("punctuation", {}).get("rules", []):
-        symbol = entry.get("symbol", "")
-        if symbol:
-            rules[symbol] = entry.get("primary", "S")
+    punct = punct_data.get("punctuation", [])
+    if isinstance(punct, list):
+        entries = punct
+    elif isinstance(punct, dict):
+        entries = punct.get("rules", [])
+    else:
+        entries = []
+    for entry in entries:
+        mark = entry.get("mark") or entry.get("symbol", "")
+        if mark:
+            rules[mark] = entry.get("primary", "S")
     return rules
 
 

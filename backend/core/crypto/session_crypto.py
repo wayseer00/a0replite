@@ -107,7 +107,11 @@ async def seal_session(
         shares: list[tuple[int, bytes]] = split_secret(meta_key, threshold=2, n=2)
         share0_b64 = base64.b64encode(shares[0][1]).decode()
         share1_b64 = base64.b64encode(shares[1][1]).decode()
-        commitment = make_commitment([s[1] for s in shares])
+        commitment_shares = [
+            {"sentinel_id": "wayseer00", "share": shares[0][1], "index": shares[0][0]},
+            {"sentinel_id": "vault2", "share": shares[1][1], "index": shares[1][0]},
+        ]
+        commitment = make_commitment(commitment_shares)
 
         description = f"a0replite PCEA share — epoch {epoch}"
         if existing_gist_id_1:
@@ -173,8 +177,13 @@ async def unseal_session(
         share0_bytes = await _read_gist_share(github_token_1, gist_id_1, "wayseer00")
         share1_bytes = await _read_gist_share(github_token_2, gist_id_2, "vault2")
 
-        if not verify_commitment([share0_bytes, share1_bytes], commitment):
-            raise ValueError("PCEA commitment verification failed — share integrity compromised")
+        if commitment:
+            commitment_shares = [
+                {"sentinel_id": "wayseer00", "share": share0_bytes, "index": 1},
+                {"sentinel_id": "vault2", "share": share1_bytes, "index": 2},
+            ]
+            if not verify_commitment(commitment_shares, commitment):
+                raise ValueError("PCEA commitment verification failed — share integrity compromised")
 
         meta_key = reconstruct_secret([(1, share0_bytes), (2, share1_bytes)])
 

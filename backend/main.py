@@ -98,8 +98,6 @@ async def shutdown() -> None:
 
 
 async def _run_migrations() -> None:
-    from alembic.config import Config
-    from alembic import command
     import pathlib
 
     alembic_ini = pathlib.Path(__file__).parent / "alembic.ini"
@@ -107,13 +105,28 @@ async def _run_migrations() -> None:
         log.warning("alembic.ini not found — skipping migrations")
         return
 
-    loop = asyncio.get_event_loop()
-    cfg = Config(str(alembic_ini))
+    db_url = _normalize_db_url(os.environ["DATABASE_URL"])
+    env = {**os.environ, "DATABASE_URL": db_url}
+    backend_dir = str(pathlib.Path(__file__).parent)
+
     try:
-        await loop.run_in_executor(None, lambda: command.upgrade(cfg, "head"))
-        log.info("Alembic migrations applied")
+        env["PYTHONPATH"] = f"/home/runner/workspace:/home/runner/workspace/backend"
+        result = await asyncio.create_subprocess_exec(
+            "python3", "-m", "alembic", "-c", str(alembic_ini), "upgrade", "head",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=backend_dir,
+        )
+        stdout, stderr = await asyncio.wait_for(result.communicate(), timeout=60)
+        if result.returncode != 0:
+            log.error("Alembic failed (rc=%d): %s", result.returncode, stderr.decode())
+        else:
+            log.info("Alembic migrations applied: %s", stdout.decode().strip() or "up to date")
+    except asyncio.TimeoutError:
+        log.error("Alembic migration timed out after 60s")
     except Exception as exc:
-        log.error("Alembic migration failed: %s", exc)
+        log.error("Alembic migration error: %s", exc)
 
 
 async def _boot_system_instance() -> None:
