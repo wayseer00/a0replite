@@ -25,7 +25,7 @@ from core.invariants import require_hmmm
 from models.message import ChatPayload
 from models.session import MemoryResponse
 from services.context_builder import build_system_prompt
-from services.ptca_service import create_session, persist_session, restore_session
+from services.ptca_service import create_session, get_session_lifecycle, persist_session, restore_session
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -45,6 +45,10 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
         inst = await restore_session(payload.session_id, db)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+    lc = get_session_lifecycle(payload.session_id)
+    if lc is not None and lc.state.value not in ("active",):
+        raise HTTPException(status_code=503, detail=f"Session lifecycle not active: {lc.state.value}")
 
     canon = get_canon()
     normalized, tokens = normalize(payload.message, canon)

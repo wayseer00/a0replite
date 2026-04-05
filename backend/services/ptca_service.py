@@ -8,8 +8,12 @@ from typing import Any, Optional
 
 from ptca import PTCAInstance
 
+from core.lifecycle import InstanceLifecycle
+
 MODEL_ID = "grok-3"
 NODE_ID = "a0-node-0"
+
+_session_lifecycles: dict[str, InstanceLifecycle] = {}
 
 
 def _new_session_id() -> str:
@@ -56,6 +60,10 @@ async def create_session(
     inst.remember("user_id", user_id)
     inst.remember("tier", tier)
     inst.remember("created_at", time.time())
+
+    lc = InstanceLifecycle()
+    lc.activate()
+    _session_lifecycles[session_id] = lc
 
     token1, token2 = _get_tokens()
     ikm = _get_ikm()
@@ -118,6 +126,7 @@ async def create_session(
         ],
     )
 
+    # create_session leaves lifecycle ACTIVE for immediate use
     return inst, session_id
 
 
@@ -183,7 +192,20 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
         details = {k: v for k, v in raw.items() if k not in ("ts", "event")}
         inst.sentinel_state.s9.record(event_name, **details)
 
+    lc = _session_lifecycles.get(session_id)
+    if lc is None:
+        lc = InstanceLifecycle()
+        lc.activate()
+        _session_lifecycles[session_id] = lc
+    elif lc.state.value == "suspended":
+        lc.resume_and_activate()
+
     return inst
+
+
+def get_session_lifecycle(session_id: str) -> "InstanceLifecycle | None":
+    """Return the InstanceLifecycle for a session, or None if not tracked."""
+    return _session_lifecycles.get(session_id)
 
 
 async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> None:
@@ -248,3 +270,8 @@ async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> Non
             (session_id, "gist_vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
         ],
     )
+
+
+    lc = _session_lifecycles.get(session_id)
+    if lc is not None and lc.state.value == "active":
+        lc.suspend()

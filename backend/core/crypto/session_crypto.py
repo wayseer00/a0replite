@@ -108,23 +108,23 @@ async def seal_session(
         share0_b64 = base64.b64encode(shares[0][1]).decode()
         share1_b64 = base64.b64encode(shares[1][1]).decode()
         commitment_shares = [
-            {"sentinel_id": "wayseer00", "share": shares[0][1], "index": shares[0][0]},
-            {"sentinel_id": "vault2", "share": shares[1][1], "index": shares[1][0]},
+            {"sentinel_id": "gist_wayseer00", "share": shares[0][1], "index": shares[0][0]},
+            {"sentinel_id": "gist_vault2", "share": shares[1][1], "index": shares[1][0]},
         ]
         commitment = make_commitment(commitment_shares)
 
         description = f"a0replite PCEA share — epoch {epoch}"
         if existing_gist_id_1:
-            await _update_gist(github_token_1, existing_gist_id_1, "wayseer00", share0_b64)
+            await _update_gist(github_token_1, existing_gist_id_1, "gist_wayseer00", share0_b64)
             gist_id_1 = existing_gist_id_1
         else:
-            gist_id_1 = await _create_gist(github_token_1, "wayseer00", share0_b64, description)
+            gist_id_1 = await _create_gist(github_token_1, "gist_wayseer00", share0_b64, description)
 
         if existing_gist_id_2:
-            await _update_gist(github_token_2, existing_gist_id_2, "vault2", share1_b64)
+            await _update_gist(github_token_2, existing_gist_id_2, "gist_vault2", share1_b64)
             gist_id_2 = existing_gist_id_2
         else:
-            gist_id_2 = await _create_gist(github_token_2, "vault2", share1_b64, description)
+            gist_id_2 = await _create_gist(github_token_2, "gist_vault2", share1_b64, description)
 
         return {
             "sealed_blob": base64.b64encode(ciphertext).decode(),
@@ -174,13 +174,13 @@ async def unseal_session(
     live_key = b""
     meta_key = b""
     try:
-        share0_bytes = await _read_gist_share(github_token_1, gist_id_1, "wayseer00")
-        share1_bytes = await _read_gist_share(github_token_2, gist_id_2, "vault2")
+        share0_bytes = await _read_gist_share(github_token_1, gist_id_1, "gist_wayseer00")
+        share1_bytes = await _read_gist_share(github_token_2, gist_id_2, "gist_vault2")
 
         if commitment:
             commitment_shares = [
-                {"sentinel_id": "wayseer00", "share": share0_bytes, "index": 1},
-                {"sentinel_id": "vault2", "share": share1_bytes, "index": 2},
+                {"sentinel_id": "gist_wayseer00", "share": share0_bytes, "index": 1},
+                {"sentinel_id": "gist_vault2", "share": share1_bytes, "index": 2},
             ]
             if not verify_commitment(commitment_shares, commitment):
                 raise ValueError("PCEA commitment verification failed — share integrity compromised")
