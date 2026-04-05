@@ -16,7 +16,7 @@ from core.edcm.normalize import normalize
 from core.edcm.parser import parse_utterances
 from core.edcm.round_agg import aggregate_round
 from core.edcm.span_detect import detect_spans
-from core.edcm.turn_agg import aggregate_turn
+from core.edcm.turn_agg import aggregate_turn, OperatorVector
 from core.guardian import audit
 from core.guardian.emitter import emit_text
 from core.guardian.recovery import quarantine
@@ -50,14 +50,14 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
     normalized, tokens = normalize(payload.message, canon)
     all_bone_tokens = []
     for t in tokens:
-        segments = segment(t, canon)
-        all_bone_tokens.extend(match_bones(segments, canon))
+        segs = segment(t, canon)
+        all_bone_tokens.extend(match_bones(segs, canon))
 
     turn_id = f"t{int(time.time()*1000)}"
     marker_hits = detect_spans(normalized, canon, turn_id)
-    operator_vec = aggregate_turn(all_bone_tokens)
+    user_op_vec = aggregate_turn(all_bone_tokens)
 
-    edcm_snapshot = operator_vec.as_dict()
+    edcm_snapshot = user_op_vec.as_dict()
 
     edcm_from_session = inst.recall("last_edcm_snapshot", default=None)
     system_prompt = build_system_prompt(inst, edcm_from_session)
@@ -101,22 +101,29 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
             round_aggs = aggregate_round(
                 marker_hits, total_turns=len(conversation.turns), total_tokens=len(tokens)
             )
-            behavioral_vec = compute_behavioral_vector(round_aggs, [operator_vec], canon)
 
             response_normalized, response_tokens = normalize(full_response, canon)
             response_bone_tokens = []
             for t in response_tokens:
                 segs = segment(t, canon)
                 response_bone_tokens.extend(match_bones(segs, canon))
-            response_operator_vec = aggregate_turn(response_bone_tokens)
+            response_op_vec = aggregate_turn(response_bone_tokens)
 
-            bridge = compute_bridge(operator_vec, response_operator_vec, canon)
+            behavioral_vec = compute_behavioral_vector(round_aggs, [user_op_vec, response_op_vec], canon)
+
+            op_history: list[OperatorVector] = inst.recall("_op_history", default=[])
+            bv_history: list[BehavioralVector] = inst.recall("_bv_history", default=[])
+            op_history = (op_history + [user_op_vec])[-20:]
+            bv_history = (bv_history + [behavioral_vec])[-20:]
+            bridge = compute_bridge(op_history, bv_history)
 
             inst.remember("last_edcm_snapshot", behavioral_vec.as_dict())
             inst.remember("last_bridge_matrix", bridge.as_dict())
+            inst.remember("_op_history", op_history)
+            inst.remember("_bv_history", bv_history)
             inst.push_context({"key": "last_message_turn_id", "val": turn_id})
 
-            full_snapshot = {**behavioral_vec.as_dict(), "bridge": bridge.as_dict()}
+            full_assistant_snapshot = {**behavioral_vec.as_dict(), "bridge": bridge.as_dict()}
 
             await db.execute(
                 """
@@ -134,7 +141,7 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
                 VALUES ($1,$2,$3,$4,$5,$6)
                 """,
                 str(uuid.uuid4()), payload.session_id, "assistant", full_response, turn_id,
-                json.dumps(full_snapshot),
+                json.dumps(full_assistant_snapshot),
             )
             await persist_session(payload.session_id, inst, db)
         except Exception as exc:

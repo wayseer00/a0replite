@@ -1,0 +1,17 @@
+alembic>=1.18.4
+asyncpg>=0.31.0
+cryptography>=42.0
+fastapi>=0.135.3
+httpx>=0.28.1
+psycopg2-binary>=2.9.10
+pydantic>=2.12.5
+python-dotenv>=1.2.2
+sqlalchemy[asyncio]>=2.0.49
+stripe>=15.0.1
+uvicorn[standard]>=0.43.0
+
+guardian-state @ git+https://github.com/The-Interdependency/PCEA.git@c43a9e74d3173d47b742a302788e9682ea5e058b
+
+ptca-lib @ git+https://github.com/The-Interdependency/PTCA.git
+
+edcmbone @ git+https://github.com/The-Interdependency/edcmbone.git
