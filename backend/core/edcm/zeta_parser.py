@@ -72,7 +72,12 @@ class ZetaParser:
                     self._raw_files[member.filename] = text
                     self._docs[short_name] = ZetaDocument(short_name, text)
                     self._docs[member.filename] = self._docs[short_name]
-                except Exception:
+                except Exception as exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "zeta_parser: skipping corrupt zip member %s: %s",
+                        member.filename, exc,
+                    )
                     continue
 
     def get(self, name: str) -> Optional[ZetaDocument]:

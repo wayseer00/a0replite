@@ -113,8 +113,8 @@ async def create_session(
           SET gist_id=EXCLUDED.gist_id, commitment=EXCLUDED.commitment, updated_at=NOW()
         """,
         [
-            (session_id, "wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
-            (session_id, "vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
+            (session_id, "gist_wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
+            (session_id, "gist_vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
         ],
     )
 
@@ -229,7 +229,7 @@ async def persist_session(session_id: str, inst: "PTCAInstance", db: Any) -> Non
           SET gist_id=EXCLUDED.gist_id, commitment=EXCLUDED.commitment, updated_at=NOW()
         """,
         [
-            (session_id, "wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
-            (session_id, "vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
+            (session_id, "gist_wayseer00", seal_result["gist_id_1"], epoch, key_id, 1, seal_result["commitment"]),
+            (session_id, "gist_vault2", seal_result["gist_id_2"], epoch, key_id, 2, seal_result["commitment"]),
         ],
     )

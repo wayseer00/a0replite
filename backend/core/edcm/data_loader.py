@@ -172,11 +172,8 @@ def load_canonical_data() -> CanonicalData:
     )
 
 
-_CANON: CanonicalData | None = None
+_CANON: CanonicalData = load_canonical_data()
 
 
 def get_canon() -> CanonicalData:
-    global _CANON
-    if _CANON is None:
-        _CANON = load_canonical_data()
     return _CANON
