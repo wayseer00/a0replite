@@ -115,6 +115,12 @@ async def run_boot_task(inst: Any, grok_call_fn: Callable, github_token: str) ->
         post_push_sha = await get_default_branch_sha(github_token)
         commit_advanced = post_push_sha != pre_push_sha
 
+        parent_verified = False
+        if commit_advanced:
+            from services.github import get_commit_parent_sha
+            parent_sha = await get_commit_parent_sha(github_token, post_push_sha)
+            parent_verified = parent_sha == pre_push_sha
+
         audit.append_event(
             inst,
             "boot_task_complete",
@@ -125,6 +131,7 @@ async def run_boot_task(inst: Any, grok_call_fn: Callable, github_token: str) ->
                 "pre_push_sha": pre_push_sha,
                 "post_push_sha": post_push_sha,
                 "commit_advanced": commit_advanced,
+                "parent_verified": parent_verified,
             },
         )
     except Exception as exc:

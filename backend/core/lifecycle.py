@@ -14,7 +14,7 @@ class InstanceState(Enum):
 _VALID_TRANSITIONS = {
     InstanceState.INIT: {InstanceState.ACTIVE},
     InstanceState.ACTIVE: {InstanceState.SUSPENDED, InstanceState.SHUTDOWN},
-    InstanceState.SUSPENDED: {InstanceState.RESUMED},
+    InstanceState.SUSPENDED: {InstanceState.RESUMED, InstanceState.SHUTDOWN},
     InstanceState.RESUMED: {InstanceState.ACTIVE},
     InstanceState.SHUTDOWN: set(),
 }

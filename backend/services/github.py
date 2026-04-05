@@ -122,3 +122,17 @@ async def get_default_branch_sha(github_token: str, owner: str = "wayseer00", re
         )
         branch_resp.raise_for_status()
         return branch_resp.json()["commit"]["sha"]
+
+
+async def get_commit_parent_sha(github_token: str, commit_sha: str, owner: str = "wayseer00", repo: str = "wayseer.github.io") -> str | None:
+    """Return the parent SHA of the given commit, or None if not found or no parents."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{_API}/repos/{owner}/{repo}/commits/{commit_sha}",
+            headers=_gh_headers(github_token),
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        parents = resp.json().get("parents", [])
+        return parents[0]["sha"] if parents else None
