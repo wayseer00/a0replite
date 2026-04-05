@@ -160,9 +160,13 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
         session_id=session_id,
         approved=snapshot.get("S6_IDENTITY", {}).get("approved", False),
     )
+
     memory = snapshot.get("S7_MEMORY", {}).get("store", {})
     for k, v in memory.items():
         inst.remember(k, v)
+
+    for entry in snapshot.get("S5_CONTEXT", {}).get("entries", []):
+        inst.push_context(entry)
 
     return inst
 

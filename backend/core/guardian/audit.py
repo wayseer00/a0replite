@@ -16,14 +16,15 @@ def _hash_event(prev_hash: str, event: dict) -> str:
 
 def append_event(inst: Any, event_type: str, payload: dict) -> None:
     """
-    Append an event to PTCA S9 via push_context.
+    Append a guardian audit event to PTCA S5 context.
     Enforces hmmm invariant. Builds SHA-256 hash chain: each event
-    commits to the hash of all preceding events.
+    commits to the hash of all preceding events for tamper evidence.
+    Events are stored as S5 context entries with key '_audit_<event_type>'.
     """
     require_hmmm(payload, context=f"audit.append_event:{event_type}")
 
-    tail = inst.audit_tail(n=1)
-    prev_hash = tail[0].get("audit_hash", "0" * 64) if tail else "0" * 64
+    existing = _read_context_events(inst)
+    prev_hash = existing[-1].get("audit_hash", "0" * 64) if existing else "0" * 64
 
     entry = {
         "event_type": event_type,
@@ -35,17 +36,31 @@ def append_event(inst: Any, event_type: str, payload: dict) -> None:
     inst.push_context({"key": f"_audit_{event_type}", "val": entry})
 
 
+def _read_context_events(inst: Any) -> list[dict]:
+    """Read all guardian audit events from S5 context entries."""
+    context_entries = getattr(inst, "context_entries", None)
+    if context_entries is None:
+        return []
+    events = []
+    for entry in context_entries:
+        if isinstance(entry, dict) and entry.get("key", "").startswith("_audit_"):
+            val = entry.get("val", {})
+            if isinstance(val, dict) and "event_type" in val:
+                events.append(val)
+    return sorted(events, key=lambda e: e.get("timestamp", 0))
+
+
 def get_events(inst: Any, event_type: Optional[str] = None) -> list[dict]:
-    """Read S9 audit tail."""
-    raw_log = inst.audit_tail(n=100)
+    """Read guardian audit events from S5 context entries."""
+    all_events = _read_context_events(inst)
     if event_type is None:
-        return list(raw_log)
+        return all_events
     return [
-        e for e in raw_log
-        if e.get("event_type") == event_type or e.get("type") == event_type
+        e for e in all_events
+        if e.get("event_type") == event_type
     ]
 
 
 def has_event(inst: Any, event_type: str) -> bool:
-    """Return True if S9 contains at least one event of this type."""
+    """Return True if S5 context contains at least one guardian audit event of this type."""
     return len(get_events(inst, event_type)) > 0
