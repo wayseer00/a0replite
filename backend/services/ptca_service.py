@@ -154,15 +154,23 @@ async def restore_session(session_id: str, db: Any) -> "PTCAInstance":
         commitment=commitment,
     )
 
+    s6 = snapshot.get("S6_IDENTITY", {})
     inst = PTCAInstance(
         model_id=MODEL_ID,
         caller_id=row["user_id"],
         session_id=session_id,
-        approved=snapshot.get("S6_IDENTITY", {}).get("approved", False),
+        approved=s6.get("approved", False),
     )
 
-    memory = snapshot.get("S7_MEMORY", {}).get("store", {})
-    for k, v in memory.items():
+    for k, v in s6.get("metadata", {}).items():
+        inst.sentinel_state.s6.metadata[k] = v
+
+    s8 = snapshot.get("S8_RISK", {})
+    if s8.get("score", 0.0) != 0.0:
+        inst.sentinel_state.s8.score = float(s8["score"])
+        inst.sentinel_state.s8.factors = list(s8.get("factors", []))
+
+    for k, v in snapshot.get("S7_MEMORY", {}).get("store", {}).items():
         inst.remember(k, v)
 
     for entry in snapshot.get("S5_CONTEXT", {}).get("entries", []):

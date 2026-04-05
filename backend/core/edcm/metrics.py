@@ -172,14 +172,17 @@ def compute_bridge(
     b_hist = behavioral_history[-n:]
 
     families = ("P", "K", "Q", "T", "S")
-    b_metrics = ("R", "L", "N", "E")
+    b_metrics = ("R", "L", "N", "E", "C", "D", "O")
 
     matrix: dict[str, dict[str, float]] = {}
     for fam in families:
         matrix[fam] = {}
         xs = [getattr(ov, fam) for ov in o_hist]
         for bm in b_metrics:
-            ys = [getattr(bv, bm) for bv in b_hist]
-            matrix[fam][bm] = _pearson(xs, ys)
+            ys_raw = [getattr(bv, bm) for bv in b_hist]
+            if any(y is None for y in ys_raw):
+                matrix[fam][bm] = 0.0
+            else:
+                matrix[fam][bm] = _pearson(xs, [float(y) for y in ys_raw])
 
     return BridgeMatrix(matrix=matrix, hmmm="")

@@ -20,18 +20,34 @@ _REQUIRED_ENV = [
     "GITHUB_TOKEN_VAULT2",
     "PCEA_IKM",
     "DATABASE_URL",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_PUBLISHABLE_KEY",
+    "STRIPE_WEBHOOK_SECRET",
 ]
 
 _RECOMMENDED_ENV = [
     "GUARDIAN_OPERATOR_KEY",
 ]
 
+_PAYMENTS_ENV = [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_PUBLISHABLE_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+]
+
 
 def _check_env() -> None:
-    missing = [k for k in _REQUIRED_ENV if not os.environ.get(k, "").strip()]
-    if missing:
-        log.critical("STARTUP FAIL — missing required env vars: %s", ", ".join(missing))
+    core_required = [k for k in _REQUIRED_ENV if k not in _PAYMENTS_ENV]
+    missing_core = [k for k in core_required if not os.environ.get(k, "").strip()]
+    if missing_core:
+        log.critical("STARTUP FAIL — missing required env vars: %s", ", ".join(missing_core))
         sys.exit(1)
+    missing_payments = [k for k in _PAYMENTS_ENV if not os.environ.get(k, "").strip()]
+    if missing_payments:
+        log.warning(
+            "Stripe secrets not configured: %s — payment endpoints will return 503 until set",
+            ", ".join(missing_payments),
+        )
     for key in _RECOMMENDED_ENV:
         if not os.environ.get(key, "").strip():
             log.warning("Recommended env var not set: %s — guardian endpoints will be unavailable", key)
