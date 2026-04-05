@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from core.edcm.metrics import metrics_snapshot
+from core.edcm.metrics import BehavioralVector
 from core.edcm.zeta_parser import ZetaParser
 
 
@@ -45,40 +45,17 @@ class DualLayerEDCM:
 
     def layer2_metrics(
         self,
-        context_vector: list[float],
-        facts_recalled: int,
-        facts_available: int,
-        drift_tokens: int,
-        total_tokens: int,
-        novel_claims: int,
-        total_claims: int,
-        latency_ms: float,
-        baseline_ms: float = 1000.0,
-        scope_tokens_used: int = 0,
-        scope_total: int = 4096,
-        embedding: Optional[list[float]] = None,
-        canonical_embedding: Optional[list[float]] = None,
-        off_topic_center: Optional[list[float]] = None,
-        instruction_embedding: Optional[list[float]] = None,
+        R: float = 0.0,
+        L: float = 0.0,
+        N: float = 0.0,
+        E: float = 0.0,
+        C: Optional[float] = None,
+        D: Optional[float] = None,
+        O: Optional[float] = None,
     ) -> dict:
-        """Layer 2: return C/R/D/N/L/O/F/E/I metrics snapshot."""
-        return metrics_snapshot(
-            context_vector=context_vector,
-            facts_recalled=facts_recalled,
-            facts_available=facts_available,
-            drift_tokens=drift_tokens,
-            total_tokens=total_tokens,
-            novel_claims=novel_claims,
-            total_claims=total_claims,
-            latency_ms=latency_ms,
-            baseline_ms=baseline_ms,
-            scope_tokens_used=scope_tokens_used,
-            scope_total=scope_total,
-            embedding=embedding,
-            canonical_embedding=canonical_embedding,
-            off_topic_center=off_topic_center,
-            instruction_embedding=instruction_embedding,
-        )
+        """Layer 2: return C/R/D/N/L/O/F/E/I metrics snapshot from a BehavioralVector."""
+        bv = BehavioralVector(R=R, L=L, N=N, E=E, C=C, D=D, O=O)
+        return bv.as_dict()
 
     def evaluate(self, document_name: str, response_text: str, **metric_kwargs: Any) -> dict:
         """Run both layers and return combined evaluation."""

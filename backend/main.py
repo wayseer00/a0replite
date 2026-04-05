@@ -169,21 +169,24 @@ async def _boot_system_instance() -> None:
     api_key = os.environ.get("XAI_API_KEY", "")
     grok_text_fn = make_grok_call_fn(api_key)
 
-    from services.boot import run_boot_sequence
-    try:
-        await run_boot_sequence(inst, grok_text_fn, github_token)
-        log.info("Boot sequence complete")
-    except Exception as exc:
-        log.error("Boot sequence error: %s", exc)
-
     app.state.system_inst = inst
 
-    from core.boot_task import make_boot_task
-    from core.volatile_task import get_queue
-    boot_task = make_boot_task(inst, grok_text_fn, github_token)
-    queue = get_queue()
-    queue.register(boot_task)
-    asyncio.create_task(queue.run(boot_task.id, inst))
+    async def _run_background_tasks() -> None:
+        from services.boot import run_boot_sequence
+        from core.boot_task import make_boot_task
+        from core.volatile_task import get_queue
+        try:
+            await run_boot_sequence(inst, grok_text_fn, github_token)
+            log.info("Boot sequence complete")
+        except Exception as exc:
+            log.error("Boot sequence error: %s", exc)
+
+        boot_task = make_boot_task(inst, grok_text_fn, github_token)
+        queue = get_queue()
+        queue.register(boot_task)
+        await queue.run(boot_task.id, inst)
+
+    asyncio.create_task(_run_background_tasks())
 
 
 async def _create_system_inst(user_id: str, db):

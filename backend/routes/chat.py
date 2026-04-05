@@ -18,7 +18,6 @@ from core.edcm.round_agg import aggregate_round
 from core.edcm.span_detect import detect_spans
 from core.edcm.turn_agg import aggregate_turn, OperatorVector
 from core.guardian import audit
-from core.guardian.emitter import emit_text
 from core.guardian.recovery import quarantine
 from core.grok_adapter import stream_grok
 from core.invariants import require_hmmm
@@ -79,11 +78,19 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
     async def event_stream() -> AsyncGenerator[bytes, None]:
         guardrails_sent = False
 
+        def _record_emission(text: str) -> None:
+            audit.append_event(
+                inst,
+                "guardian_emission",
+                {"length": len(text), "preview": text[:64], "hmmm": ""},
+            )
+
         if guardrails_prefix:
             for line in guardrails_prefix.split("\n"):
                 if line:
-                    emit_text(line, lambda _: None)
-                    yield f"data: {json.dumps({'content': line + chr(10)})}\n\n".encode()
+                    chunk = f"data: {json.dumps({'content': line + chr(10)})}\n\n".encode()
+                    _record_emission(line)
+                    yield chunk
             guardrails_sent = True
 
         if is_first:
@@ -95,7 +102,7 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
         full_response = ""
         async for chunk in stream_grok(api_key, messages, _DEFAULT_MODEL):
             full_response += chunk
-            emit_text(chunk, lambda _: None)
+            _record_emission(chunk)
             yield f"data: {json.dumps({'content': chunk})}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
