@@ -21,7 +21,7 @@ _VALID_TRANSITIONS = {
 
 
 class InvalidTransition(Exception):
-    pass
+    """Raised when an illegal state transition is attempted."""
 
 
 class InstanceLifecycle:
@@ -60,6 +60,4 @@ class InstanceLifecycle:
     def shutdown(self) -> None:
         if self._state == InstanceState.SHUTDOWN:
             return
-        if self._state == InstanceState.SUSPENDED:
-            self.transition(InstanceState.RESUMED)
         self.transition(InstanceState.SHUTDOWN)

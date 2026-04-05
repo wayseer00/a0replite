@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Callable, Optional
 
 from core.guardian import audit
+
+_log = logging.getLogger(__name__)
 
 
 def emit(inst: Any, text: str, stream_fn: Callable[[str], None]) -> None:
@@ -19,8 +22,8 @@ def emit(inst: Any, text: str, stream_fn: Callable[[str], None]) -> None:
                 "guardian_emission",
                 {"length": len(text), "preview": text[:64], "hmmm": ""},
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("emitter: audit guardian_emission failed: %s", exc)
 
 
 def emit_text(text: str, stream_fn: Callable[[str], None]) -> None:

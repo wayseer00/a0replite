@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,8 +60,8 @@ class TaskQueue:
                     "task_started",
                     {"hmmm": "", "task_id": task_id, "task_name": task.name},
                 )
-            except Exception:
-                pass
+            except Exception as audit_exc:
+                _log.warning("volatile_task: audit task_started failed: %s", audit_exc)
 
         try:
             if asyncio.iscoroutinefunction(task.fn):
@@ -81,8 +84,8 @@ class TaskQueue:
                             "self_delete": task.self_delete,
                         },
                     )
-                except Exception:
-                    pass
+                except Exception as audit_exc:
+                    _log.warning("volatile_task: audit task_completed failed: %s", audit_exc)
 
         except Exception as exc:
             task.status = "failed"
@@ -102,8 +105,8 @@ class TaskQueue:
                             "error": str(exc),
                         },
                     )
-                except Exception:
-                    pass
+                except Exception as audit_exc:
+                    _log.warning("volatile_task: audit task_failed failed: %s", audit_exc)
 
         finally:
             if task.self_delete and task.status in ("completed", "failed"):

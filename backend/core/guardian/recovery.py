@@ -35,5 +35,5 @@ def quarantine(exc: Exception, context: str, inst: Any = None) -> None:
                     "hmmm": "",
                 },
             )
-        except Exception:
-            pass
+        except Exception as audit_exc:
+            print(f"[QUARANTINE] audit append failed: {audit_exc!r}", file=sys.stderr)

@@ -55,7 +55,7 @@ async def run_boot_task(inst: Any, grok_call_fn: Callable, github_token: str) ->
         from services.github import fetch_file, get_repo_tree, get_default_branch_sha, push_file
 
         tree = await get_repo_tree(github_token)
-        target_exts = {".html", ".css", ".md", ".js"}
+        target_exts = {".html", ".css", ".md"}
         target_files = [
             item for item in tree
             if item.get("type") == "blob"
