@@ -2,26 +2,45 @@ from __future__ import annotations
 
 import os
 import time
+from typing import Optional
 
-from fastapi import APIRouter
-
-from services.data_loader import get_parser
+from fastapi import APIRouter, Request
 
 router = APIRouter(tags=["health"])
+
+_system_inst: Optional[object] = None
+
+
+def set_system_inst(inst: object) -> None:
+    global _system_inst
+    _system_inst = inst
 
 
 @router.get("/health")
 async def health() -> dict:
+    from core.edcm.data_loader import get_canon
     try:
-        parser = get_parser()
-        doc_count = len(parser.all_names())
+        canon = get_canon()
+        doc_count = sum(len(v) for v in canon.markers_by_metric.values())
     except RuntimeError:
         doc_count = -1
+
+    ptca_info: dict = {}
+    edcm_info: Optional[dict] = None
+    if _system_inst is not None:
+        snap = _system_inst.snapshot()
+        ptca_info = {
+            "s8_risk": snap.get("S8_RISK", {}).get("score", 0.0),
+            "epoch": _system_inst.recall("boot_epoch", default=0),
+        }
+        edcm_info = _system_inst.recall("last_edcm_snapshot", default=None)
 
     return {
         "status": "ok",
         "ts": time.time(),
-        "canon_docs": doc_count,
+        "canon_marker_entries": doc_count,
+        "ptca": ptca_info,
+        "edcm": edcm_info,
         "hmmm": "",
     }
 

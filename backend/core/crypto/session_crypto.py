@@ -1,105 +1,200 @@
 from __future__ import annotations
 
+import base64
+import json
+import os
 import time
-from typing import Any
+from typing import Any, Optional
 
 from guardian_state import (
-    LiveState,
-    MetaShares,
-    SealedState,
     derive_keys,
+    make_commitment,
     reconstruct_meta_key,
-    seal_live_state,
     split_meta_key,
+    unseal_live_state,
+    verify_commitment,
     wipe,
+    wrap_live_key,
+    unwrap_live_key,
 )
+from guardian_state.aead import seal, unseal
+from guardian_state.threshold import split_secret, reconstruct_secret
+from guardian_state.wrap import WrappedLiveKey
 
-SENTINEL_A = "wayseer00"
-SENTINEL_B = "vault2"
+import httpx
 
 
-class SessionCryptoManager:
+_GITHUB_API = "https://api.github.com"
+_GH_HEADERS = {
+    "Accept": "application/vnd.github.v3+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+}
+
+
+def _gh_headers(token: str) -> dict:
+    return {**_GH_HEADERS, "Authorization": f"Bearer {token}"}
+
+
+async def _create_gist(token: str, sentinel_id: str, share_b64: str, description: str) -> str:
+    filename = f"{sentinel_id}_share.json"
+    content = json.dumps({"sentinel_id": sentinel_id, "share": share_b64}, indent=2)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{_GITHUB_API}/gists",
+            headers=_gh_headers(token),
+            json={"description": description, "public": False, "files": {filename: {"content": content}}},
+        )
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+
+async def _update_gist(token: str, gist_id: str, sentinel_id: str, share_b64: str) -> None:
+    filename = f"{sentinel_id}_share.json"
+    content = json.dumps({"sentinel_id": sentinel_id, "share": share_b64}, indent=2)
+    async with httpx.AsyncClient() as client:
+        resp = await client.patch(
+            f"{_GITHUB_API}/gists/{gist_id}",
+            headers=_gh_headers(token),
+            json={"files": {filename: {"content": content}}},
+        )
+        resp.raise_for_status()
+
+
+async def _read_gist_share(token: str, gist_id: str, sentinel_id: str) -> bytes:
+    filename = f"{sentinel_id}_share.json"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{_GITHUB_API}/gists/{gist_id}", headers=_gh_headers(token))
+        resp.raise_for_status()
+        raw_content = resp.json()["files"][filename]["content"]
+        data = json.loads(raw_content)
+        return base64.b64decode(data["share"])
+
+
+async def seal_session(
+    ptca_snapshot: dict,
+    ikm: bytes,
+    epoch: int,
+    key_id: str,
+    guardian_node_id: str,
+    github_token_1: str,
+    github_token_2: str,
+    existing_gist_id_1: Optional[str] = None,
+    existing_gist_id_2: Optional[str] = None,
+) -> dict:
     """
-    Manages per-session PCEA lifecycle:
-    derive → seal → split → store gists → reconstruct → unseal.
+    Seal PTCA snapshot with PCEA:
+    1. derive_keys → (live_key, meta_key)
+    2. seal plaintext with live_key (AES-256-GCM)
+    3. wrap_live_key with meta_key
+    4. split meta_key 2-of-2 via threshold.split_secret
+    5. store shares as private GitHub Gists
+    6. make_commitment over shares
+    7. wipe live_key and meta_key in finally
+    Returns: {sealed_blob, nonce, aad, wrapped_key_b64, gist_id_1, gist_id_2, commitment, epoch, key_id}
     """
+    live_key = b""
+    meta_key = b""
+    try:
+        live_key, meta_key = derive_keys(ikm, epoch, key_id, guardian_node_id)
 
-    def __init__(self, ikm: bytes, epoch: int, key_id: str, node_id: str) -> None:
-        self._ikm = ikm
-        self._epoch = epoch
-        self._key_id = key_id
-        self._node_id = node_id
-        self._live_key: bytes | None = None
-        self._meta_key: bytes | None = None
-        self._sealed: SealedState | None = None
-        self._meta_shares: MetaShares | None = None
-        self._seal_counter = 0
+        plaintext = json.dumps(ptca_snapshot, default=str).encode()
+        nonce = os.urandom(12)
+        aad = f"{epoch}:{key_id}:{guardian_node_id}".encode()
+        ciphertext = seal(live_key, nonce, plaintext, aad)
 
-    def derive(self) -> None:
-        """Derive live_key and meta_key from IKM."""
-        self._live_key, self._meta_key = derive_keys(
-            self._ikm, self._epoch, self._key_id, self._node_id
+        wrapped: WrappedLiveKey = wrap_live_key(live_key, meta_key, epoch, key_id)
+
+        shares: list[tuple[int, bytes]] = split_secret(meta_key, threshold=2, n=2)
+        share0_b64 = base64.b64encode(shares[0][1]).decode()
+        share1_b64 = base64.b64encode(shares[1][1]).decode()
+        commitment = make_commitment([s[1] for s in shares])
+
+        description = f"a0replite PCEA share — epoch {epoch}"
+        if existing_gist_id_1:
+            await _update_gist(github_token_1, existing_gist_id_1, "wayseer00", share0_b64)
+            gist_id_1 = existing_gist_id_1
+        else:
+            gist_id_1 = await _create_gist(github_token_1, "wayseer00", share0_b64, description)
+
+        if existing_gist_id_2:
+            await _update_gist(github_token_2, existing_gist_id_2, "vault2", share1_b64)
+            gist_id_2 = existing_gist_id_2
+        else:
+            gist_id_2 = await _create_gist(github_token_2, "vault2", share1_b64, description)
+
+        return {
+            "sealed_blob": base64.b64encode(ciphertext).decode(),
+            "nonce": base64.b64encode(nonce).decode(),
+            "aad": aad.decode(),
+            "wrapped_key": base64.b64encode(wrapped.wrapped_live_key).decode(),
+            "wrapped_key_id": wrapped.key_id,
+            "gist_id_1": gist_id_1,
+            "gist_id_2": gist_id_2,
+            "commitment": commitment,
+            "epoch": epoch,
+            "key_id": key_id,
+        }
+    finally:
+        if live_key:
+            wipe(live_key)
+        if meta_key:
+            wipe(meta_key)
+
+
+async def unseal_session(
+    sealed_blob: str,
+    nonce: str,
+    aad: str,
+    wrapped_key: str,
+    gist_id_1: str,
+    gist_id_2: str,
+    epoch: int,
+    key_id: str,
+    guardian_node_id: str,
+    ikm: bytes,
+    github_token_1: str,
+    github_token_2: str,
+    commitment: str,
+) -> dict:
+    """
+    Unseal a PTCA snapshot from the Gist vault.
+    1. Fetch shares from both Gists
+    2. Verify commitment
+    3. Reconstruct meta_key via threshold.reconstruct_secret
+    4. Re-derive keys for unwrapping context
+    5. Unwrap live_key using meta_key
+    6. Decrypt sealed_blob
+    7. Wipe keys in finally
+    Returns ptca_snapshot dict.
+    """
+    live_key = b""
+    meta_key = b""
+    try:
+        share0_bytes = await _read_gist_share(github_token_1, gist_id_1, "wayseer00")
+        share1_bytes = await _read_gist_share(github_token_2, gist_id_2, "vault2")
+
+        if not verify_commitment([share0_bytes, share1_bytes], commitment):
+            raise ValueError("PCEA commitment verification failed — share integrity compromised")
+
+        meta_key = reconstruct_secret([(1, share0_bytes), (2, share1_bytes)])
+
+        live_key, _ = derive_keys(ikm, epoch, key_id, guardian_node_id)
+
+        wrapped = WrappedLiveKey(
+            key_id=key_id,
+            epoch=epoch,
+            wrapped_live_key=base64.b64decode(wrapped_key),
+            wrap_key_hash="",
         )
+        live_key = unwrap_live_key(wrapped, meta_key)
 
-    def seal(self, ptca_snapshot: dict, sealed_by: str) -> SealedState:
-        """Seal current PTCA snapshot into a SealedState."""
-        if self._live_key is None:
-            raise RuntimeError("Must call derive() before seal()")
-        state = LiveState(
-            epoch=self._epoch,
-            spiral={},
-            cores={},
-            density_matrix=None,
-            coherence=1.0,
-            transport=ptca_snapshot,
-            last_renorm=time.time(),
-        )
-        self._seal_counter += 1
-        self._sealed = seal_live_state(
-            state,
-            self._live_key,
-            self._epoch,
-            self._key_id,
-            self._seal_counter,
-            self._node_id,
-            sealed_by,
-        )
-        return self._sealed
-
-    def split(self) -> MetaShares:
-        """Split the meta_key 2-of-2 for SENTINEL_A and SENTINEL_B."""
-        if self._meta_key is None:
-            raise RuntimeError("Must call derive() before split()")
-        self._meta_shares = split_meta_key(
-            self._meta_key, threshold=2, sentinels=[SENTINEL_A, SENTINEL_B]
-        )
-        return self._meta_shares
-
-    def get_share_bytes(self, index: int) -> bytes:
-        """Return the raw share bytes at position index from the split result."""
-        if self._meta_shares is None:
-            raise RuntimeError("Must call split() first")
-        share_dict = self._meta_shares.shares[index]
-        return share_dict["share"]
-
-    def reconstruct(self, share_dicts: list[dict]) -> bytes:
-        """Reconstruct meta_key from list of share dicts and the MetaShares commitment."""
-        if self._meta_shares is None:
-            raise RuntimeError("No meta shares recorded — can only reconstruct from split()")
-        return reconstruct_meta_key(share_dicts, self._meta_shares)
-
-    @property
-    def sealed_state(self) -> SealedState | None:
-        return self._sealed
-
-    def wipe_live_key(self) -> None:
-        """Wipe live key from memory after sealing."""
-        if self._live_key is not None:
-            wipe(self._live_key)
-            self._live_key = None
-
-    def wipe_meta_key(self) -> None:
-        """Wipe meta key from memory after splitting."""
-        if self._meta_key is not None:
-            wipe(self._meta_key)
-            self._meta_key = None
+        ciphertext = base64.b64decode(sealed_blob)
+        nonce_bytes = base64.b64decode(nonce)
+        aad_bytes = aad.encode()
+        plaintext = unseal(live_key, nonce_bytes, ciphertext, aad_bytes)
+        return json.loads(plaintext.decode())
+    finally:
+        if live_key:
+            wipe(live_key)
+        if meta_key:
+            wipe(meta_key)

@@ -1,47 +1,64 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import sys
 import time
-import uuid
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
+import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from core.guardian.recovery import quarantine
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("a0replite.main")
+
+_REQUIRED_ENV = [
+    "XAI_API_KEY",
+    "GITHUB_TOKEN_WAYSEER00",
+    "GITHUB_TOKEN_VAULT2",
+    "PCEA_IKM",
+    "DATABASE_URL",
+]
+
+
+def _check_env() -> None:
+    missing = [k for k in _REQUIRED_ENV if not os.environ.get(k, "").strip()]
+    if missing:
+        log.critical("STARTUP FAIL — missing required env vars: %s", ", ".join(missing))
+        sys.exit(1)
+
+
+def _normalize_db_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
+_check_env()
+
 from core.invariants import InvariantViolation
 from core.laws import LawViolation
-from core.volatile_task import VolatileTask, get_queue
 from routes.chat import router as chat_router
-from routes.guardian import router as guardian_router
+from routes.content import router as content_router
 from routes.health import router as health_router
 from routes.payments import router as payments_router
-from services.data_loader import ensure_canon_data
-from services.ptca_service import init_ptca_session
 
-app = FastAPI(
-    title="a0replite",
-    description="Grounded AI instance — The Interdependent Way",
-    version="0.1.0",
-)
+app = FastAPI(title="a0replite", version="0.1.0", docs_url="/api/docs", redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://www.interdependentway.org", "https://interdependentway.org"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(health_router)
-app.include_router(chat_router, prefix="/api")
-app.include_router(guardian_router, prefix="/api")
-app.include_router(payments_router, prefix="/api")
+app.include_router(chat_router)
+app.include_router(content_router)
+app.include_router(payments_router)
 
 
 @app.exception_handler(InvariantViolation)
@@ -54,69 +71,96 @@ async def law_handler(request: Request, exc: LawViolation) -> JSONResponse:
     return JSONResponse(status_code=403, content={"error": "law_violation", "detail": str(exc)})
 
 
-def _get_ikm() -> bytes:
-    """Load PCEA IKM from environment (32 bytes hex). Never regenerated after first boot."""
-    ikm_hex = os.environ.get("PCEA_IKM", "")
-    if len(ikm_hex) >= 64:
-        return bytes.fromhex(ikm_hex[:64])
-    import hashlib
-    fallback = hashlib.sha256(b"a0replite-fallback-ikm").digest()
-    return fallback
-
-
-async def _register_boot_tasks() -> None:
-    """Register the self-authorizing boot task: website repair → self-delete."""
-    from services.website_task import repair_website
-    queue = get_queue()
-    task = VolatileTask(
-        id=f"boot-repair-{uuid.uuid4()}",
-        name="website_repair",
-        fn=repair_website,
-        self_delete=True,
-    )
-    queue.register(task)
-    task_id = task.id
-
-    import asyncio
-    async def _run_boot_task() -> None:
-        await asyncio.sleep(2)
-        await queue.run(task_id)
-
-    asyncio.create_task(_run_boot_task())
-
-
 @app.on_event("startup")
-async def startup_event() -> None:
-    """
-    Three-step startup:
-    1. Load canonical edcmbone data (Zeta parser)
-    2. Init PTCA + PCEA session
-    3. Register and dispatch autonomous boot tasks
-    """
-    t0 = time.time()
-    print("[a0replite] startup: loading canonical data…", flush=True)
+async def startup() -> None:
+    db_url = _normalize_db_url(os.environ["DATABASE_URL"])
+    app.state.db = await asyncpg.create_pool(db_url, min_size=2, max_size=10, command_timeout=30)
+    log.info("DB pool created")
 
+    await _run_migrations()
+
+    from core.edcm.data_loader import load_canonical_data, CanonLoadError
     try:
-        await ensure_canon_data()
-    except Exception as exc:
-        quarantine(exc, "startup:ensure_canon_data")
+        load_canonical_data()
+        log.info("EDCM canonical data loaded")
+    except CanonLoadError as exc:
+        log.critical("EDCM canon load failed — aborting: %s", exc)
+        sys.exit(1)
 
-    try:
-        ikm = _get_ikm()
-        await init_ptca_session(ikm)
-        print(f"[a0replite] PTCA+PCEA session ready in {time.time()-t0:.2f}s", flush=True)
-    except Exception as exc:
-        quarantine(exc, "startup:init_ptca_session")
-
-    try:
-        await _register_boot_tasks()
-        print("[a0replite] boot tasks registered and dispatched", flush=True)
-    except Exception as exc:
-        quarantine(exc, "startup:register_boot_tasks")
-
-    print(f"[a0replite] startup complete in {time.time()-t0:.2f}s", flush=True)
+    await _boot_system_instance()
 
 
 @app.on_event("shutdown")
-async def shutdown_event() -> None:
-    print("[a0replite] shutdown", flush=True)
+async def shutdown() -> None:
+    if hasattr(app.state, "db"):
+        await app.state.db.close()
+    log.info("a0replite shutdown")
+
+
+async def _run_migrations() -> None:
+    from alembic.config import Config
+    from alembic import command
+    import pathlib
+
+    alembic_ini = pathlib.Path(__file__).parent / "alembic.ini"
+    if not alembic_ini.exists():
+        log.warning("alembic.ini not found — skipping migrations")
+        return
+
+    loop = asyncio.get_event_loop()
+    cfg = Config(str(alembic_ini))
+    try:
+        await loop.run_in_executor(None, lambda: command.upgrade(cfg, "head"))
+        log.info("Alembic migrations applied")
+    except Exception as exc:
+        log.error("Alembic migration failed: %s", exc)
+
+
+async def _boot_system_instance() -> None:
+    from ptca import PTCAInstance
+    from core.grok_adapter import call_grok_text
+    from routes.health import set_system_inst
+
+    SYSTEM_USER = "a0-system"
+    db = app.state.db
+
+    existing_row = await db.fetchrow(
+        "SELECT session_id FROM chat_sessions WHERE user_id=$1 ORDER BY created_at ASC LIMIT 1",
+        SYSTEM_USER,
+    )
+
+    if existing_row:
+        from services.ptca_service import restore_session
+        try:
+            inst = await restore_session(str(existing_row["session_id"]), db)
+            log.info("System PTCAInstance restored from DB")
+        except Exception as exc:
+            log.warning("Could not restore system session (%s) — creating fresh", exc)
+            inst, _ = await _create_system_inst(SYSTEM_USER, db)
+    else:
+        inst, _ = await _create_system_inst(SYSTEM_USER, db)
+
+    set_system_inst(inst)
+    inst.remember("boot_epoch", int(time.time()) // 86400)
+
+    github_token = os.environ.get("GITHUB_TOKEN_WAYSEER00", "")
+
+    async def grok_text_fn(model: str, messages: list) -> str:
+        api_key = os.environ.get("XAI_API_KEY", "")
+        return await call_grok_text(api_key, messages, model)
+
+    from services.boot import run_boot_sequence
+    try:
+        await run_boot_sequence(inst, grok_text_fn, github_token)
+        log.info("Boot sequence complete")
+    except Exception as exc:
+        log.error("Boot sequence error: %s", exc)
+
+    app.state.system_inst = inst
+
+
+async def _create_system_inst(user_id: str, db):
+    from services.ptca_service import create_session
+    inst, session_id = await create_session(user_id=user_id, tier="operator", db=db)
+    log.info("System PTCAInstance created: %s", session_id)
+    return inst, session_id

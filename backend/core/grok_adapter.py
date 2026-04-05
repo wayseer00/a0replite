@@ -24,6 +24,18 @@ def make_grok_call_fn(api_key: str, model: str = "grok-3"):
     return call_fn
 
 
+async def call_grok_text(api_key: str, messages: list[dict], model: str = "grok-3") -> str:
+    """Non-streaming Grok call — returns full response text."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.post(
+            f"{_XAI_BASE}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model, "messages": messages, "stream": False},
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+
 async def stream_grok(
     api_key: str,
     messages: list[dict],

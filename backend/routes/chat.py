@@ -1,72 +1,166 @@
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from core.invariants import InvariantViolation, require_hmmm
-from models.chat import (
-    ChatRequest,
-    ChatResponse,
-    CouncilRequest,
-    CouncilResponse,
-    DaisyChainRequest,
-    DaisyChainResponse,
-    FanOutRequest,
-    FanOutResponse,
-)
-from services.chat_service import (
-    chat_complete,
-    run_aimmh_council,
-    run_aimmh_daisy_chain,
-    run_aimmh_fan_out,
-)
+from core.edcm.bone_match import match_bones
+from core.edcm.data_loader import get_canon
+from core.edcm.metrics import BehavioralVector, compute_behavioral_vector
+from core.edcm.morph import segment
+from core.edcm.normalize import normalize
+from core.edcm.parser import parse_utterances
+from core.edcm.round_agg import aggregate_round
+from core.edcm.span_detect import detect_spans
+from core.edcm.turn_agg import aggregate_turn
+from core.guardian import audit
+from core.guardian.emitter import emit_text
+from core.guardian.recovery import quarantine
+from core.grok_adapter import stream_grok
+from core.invariants import require_hmmm
+from models.message import ChatPayload
+from models.session import MemoryResponse
+from services.context_builder import build_system_prompt
+from services.ptca_service import create_session, persist_session, restore_session
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/api", tags=["chat"])
 
-
-@router.post("/complete", response_model=ChatResponse)
-async def complete(req: ChatRequest) -> ChatResponse:
-    require_hmmm(req.model_dump(), "POST /chat/complete")
-    msgs = [m.model_dump() for m in req.messages]
-    result = await chat_complete(msgs, model=req.model, stream=False)
-    return ChatResponse(content=str(result), model=req.model, hmmm=req.hmmm)
+_DEFAULT_MODEL = "grok-3"
 
 
-@router.post("/stream")
-async def stream(req: ChatRequest) -> StreamingResponse:
-    require_hmmm(req.model_dump(), "POST /chat/stream")
-    msgs = [m.model_dump() for m in req.messages]
-    gen: AsyncGenerator[str, None] = await chat_complete(msgs, model=req.model, stream=True)
+def _get_db(request: Request):
+    return request.app.state.db
+
+
+@router.post("/chat")
+async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
+    require_hmmm(payload.model_dump(), "POST /api/chat")
+    db = _get_db(request)
+
+    try:
+        inst = await restore_session(payload.session_id, db)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    canon = get_canon()
+    normalized, tokens = normalize(payload.message, canon)
+    all_bone_tokens = []
+    for t in tokens:
+        segments = segment(t, canon)
+        all_bone_tokens.extend(match_bones(segments, canon))
+
+    turn_id = f"t{int(time.time()*1000)}"
+    marker_hits = detect_spans(normalized, canon, turn_id)
+    operator_vec = aggregate_turn(all_bone_tokens)
+
+    edcm_snapshot = operator_vec.as_dict()
+
+    edcm_from_session = inst.recall("last_edcm_snapshot", default=None)
+    system_prompt = build_system_prompt(inst, edcm_from_session)
+
+    api_key = _xai_key()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": payload.message},
+    ]
+
+    first_interaction_events = audit.get_events(inst, "first_interaction_complete")
+    is_first = len(first_interaction_events) == 0
+    guardrails_prefix = ""
+    if is_first:
+        guardrails = inst.recall("iw_guardrails", default=None)
+        if guardrails:
+            guardrails_prefix = f"{guardrails}\n\n---\n\n"
+        audit.append_event(
+            inst, "first_interaction_complete", {"hmmm": "", "session_id": payload.session_id}
+        )
 
     async def event_stream() -> AsyncGenerator[bytes, None]:
-        async for chunk in gen:
+        if guardrails_prefix:
+            for chunk in guardrails_prefix.split("\n"):
+                if chunk:
+                    yield f"data: {json.dumps({'content': chunk + chr(10)})}\n\n".encode()
+
+        full_response = ""
+        async for chunk in stream_grok(api_key, messages, _DEFAULT_MODEL):
+            full_response += chunk
             yield f"data: {json.dumps({'content': chunk})}\n\n".encode()
+
         yield b"data: [DONE]\n\n"
+
+        try:
+            utterances = [
+                {"actor_id": "user", "raw_text": payload.message, "timestamp": time.time()},
+                {"actor_id": "a0replite", "raw_text": full_response, "timestamp": time.time()},
+            ]
+            conversation = parse_utterances(utterances)
+            round_aggs = aggregate_round(
+                marker_hits, total_turns=len(conversation.turns), total_tokens=len(tokens)
+            )
+            behavioral_vec = compute_behavioral_vector(round_aggs, [operator_vec], canon)
+            inst.remember("last_edcm_snapshot", behavioral_vec.as_dict())
+            inst.push_context({"key": "last_message_turn_id", "val": turn_id})
+
+            msg_id = str(uuid.uuid4())
+            await db.execute(
+                """
+                INSERT INTO chat_messages
+                  (message_id, session_id, role, content, turn_id, edcm_snapshot)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                """,
+                str(uuid.uuid4()), payload.session_id, "user", payload.message, turn_id,
+                json.dumps(edcm_snapshot),
+            )
+            await db.execute(
+                """
+                INSERT INTO chat_messages
+                  (message_id, session_id, role, content, turn_id, edcm_snapshot)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                """,
+                msg_id, payload.session_id, "assistant", full_response, turn_id,
+                json.dumps(behavioral_vec.as_dict()),
+            )
+            await persist_session(payload.session_id, inst, db)
+        except Exception as exc:
+            quarantine(exc, "chat:post_stream", inst)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/fan-out", response_model=FanOutResponse)
-async def fan_out(req: FanOutRequest) -> FanOutResponse:
-    require_hmmm(req.model_dump(), "POST /chat/fan-out")
-    msgs = [m.model_dump() for m in req.messages]
-    results = await run_aimmh_fan_out(msgs, model=req.model, n=req.n)
-    return FanOutResponse(results=results, hmmm=req.hmmm)
+@router.get("/chat/{session_id}/memory", response_model=MemoryResponse)
+async def get_memory(session_id: str, request: Request) -> MemoryResponse:
+    db = _get_db(request)
+    try:
+        inst = await restore_session(session_id, db)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    row = await db.fetchrow(
+        "SELECT tier, pcea_epoch FROM chat_sessions WHERE session_id=$1", session_id
+    )
+    tier = row["tier"] if row else "seeker"
+    epoch = row["pcea_epoch"] if row else 0
+    memory = inst.snapshot().get("S7_MEMORY", {}).get("store", {})
+    s8_risk = inst.snapshot().get("S8_RISK", {}).get("score", 0.0)
+    edcm_last = inst.recall("last_edcm_snapshot", default=None)
+
+    return MemoryResponse(
+        s7_key_count=len(memory),
+        s8_risk=s8_risk,
+        tier=tier,
+        pcea_epoch=epoch,
+        edcm_last=edcm_last,
+        hmmm="",
+    )
 
 
-@router.post("/daisy-chain", response_model=DaisyChainResponse)
-async def daisy_chain(req: DaisyChainRequest) -> DaisyChainResponse:
-    require_hmmm(req.model_dump(), "POST /chat/daisy-chain")
-    steps = [s.model_dump() for s in req.steps]
-    result = await run_aimmh_daisy_chain(steps, model=req.model)
-    return DaisyChainResponse(result=result, hmmm=req.hmmm)
-
-
-@router.post("/council", response_model=CouncilResponse)
-async def council(req: CouncilRequest) -> CouncilResponse:
-    require_hmmm(req.model_dump(), "POST /chat/council")
-    responses = await run_aimmh_council(req.question, req.roles, model=req.model)
-    return CouncilResponse(responses=responses, hmmm=req.hmmm)
+def _xai_key() -> str:
+    import os
+    key = os.environ.get("XAI_API_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="XAI_API_KEY not configured")
+    return key

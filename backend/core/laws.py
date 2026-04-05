@@ -19,9 +19,13 @@ def law4_persistence_requires_adjudication(event: dict, adjudicator_id: str) -> 
         raise LawViolation(f"Law 4: event {event.get('event_type','?')} has no adjudicator")
 
 
-def law6_quarantine_over_collapse(exc: Exception, context: str) -> None:
-    """Law 6: quarantine on error — never cascade. Caller handles logging."""
-    pass
+def law6_quarantine_over_collapse(exc: Exception, context: str, inst: object = None) -> None:
+    """
+    Law 6: quarantine over collapse — isolate the error, log it, never re-raise.
+    Delegates to recovery.quarantine(). Does not cascade. Does not crash the process.
+    """
+    from core.guardian.recovery import quarantine
+    quarantine(exc, context, inst)
 
 
 def law8_capability_not_authority(gate_name: str, s4_approved: bool) -> None:
