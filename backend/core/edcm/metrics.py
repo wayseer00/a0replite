@@ -132,6 +132,11 @@ def compute_behavioral_vector(
     )
 
 
+def metrics_snapshot(behavioral_vec: "BehavioralVector") -> dict:
+    """Return behavioral vector as a plain dict snapshot."""
+    return behavioral_vec.as_dict()
+
+
 def compute_bridge(
     operator_history: list[OperatorVector],
     behavioral_history: list[BehavioralVector],
