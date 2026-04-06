@@ -6,6 +6,12 @@ from pathlib import Path
 import edcmbone
 from edcmbone import CanonLoadError  # re-exported for callers
 
+# The installed edcmbone package (from The-Interdependency/edcmbone) ships only
+# Python scaffolding (an empty __init__ and a placeholder parser stub).  It does
+# NOT bundle the canonical zip as a package-data file.  The project therefore ships
+# the zip at backend/data/ as the authoritative data source.  All parsing and
+# validation is delegated to edcmbone.load_canonical_data() — this module's only
+# role is to resolve the zip path and wrap the returned CanonData in CanonicalData.
 _ZIP_PATH = Path(__file__).parent.parent.parent / "data" / "edcmbone_canon_data_v1.zip"
 
 

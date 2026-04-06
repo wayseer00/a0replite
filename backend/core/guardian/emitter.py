@@ -24,8 +24,3 @@ def emit(inst: Any, text: str, stream_fn: Callable[[str], None]) -> None:
             )
         except Exception as exc:
             _log.warning("emitter: audit guardian_emission failed: %s", exc)
-
-
-def emit_text(text: str, stream_fn: Callable[[str], None]) -> None:
-    """Emit without an inst (e.g. during boot before session exists)."""
-    stream_fn(text)
