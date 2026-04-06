@@ -169,14 +169,21 @@ async def run_heartbeat_loop(app: Any) -> None:
     global _start_time
     _start_time = time.time()
 
-    interval = int(os.environ.get("HEARTBEAT_INTERVAL_SECS", "60"))
+    try:
+        interval = max(10, int(os.environ.get("HEARTBEAT_INTERVAL_SECS", "60")))
+    except (ValueError, TypeError):
+        log.warning("HEARTBEAT_INTERVAL_SECS is not a valid integer — defaulting to 60s")
+        interval = 60
     log.info("Heartbeat loop started (interval=%ds)", interval)
 
-    await asyncio.sleep(interval)
+    try:
+        await _tick(app)
+    except Exception as exc:
+        log.error("Initial heartbeat tick error: %s", exc)
 
     while True:
+        await asyncio.sleep(interval)
         try:
             await _tick(app)
         except Exception as exc:
             log.error("Heartbeat tick error: %s", exc)
-        await asyncio.sleep(interval)
