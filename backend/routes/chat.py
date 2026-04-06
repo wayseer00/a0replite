@@ -176,7 +176,7 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
                 await persist_session(payload.session_id, inst, db)
                 status_registry.record_ok("db")
             except Exception as db_exc:
-                status_registry.record_error("db")
+                status_registry.record_error("db", str(db_exc))
                 raise db_exc
         except Exception as exc:
             quarantine(exc, "chat:post_stream", inst)

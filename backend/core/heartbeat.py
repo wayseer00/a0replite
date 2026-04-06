@@ -96,19 +96,20 @@ async def _get_session_count(app: Any) -> int:
 
 
 async def _check_db(app: Any) -> str:
-    """Return 'ok' or 'error' and update status registry."""
+    """Return 'ok' or 'error: <msg>' and update status registry."""
     from core import status_registry
     try:
         db = getattr(app.state, "db", None)
         if db is None:
-            status_registry.record_error("db")
-            return "error"
+            status_registry.record_error("db", "no pool")
+            return "error: no pool"
         await db.fetchval("SELECT 1")
         status_registry.record_ok("db")
         return "ok"
-    except Exception:
-        status_registry.record_error("db")
-        return "error"
+    except Exception as exc:
+        msg = str(exc)
+        status_registry.record_error("db", msg)
+        return f"error: {msg}"
 
 
 def _build_stats(

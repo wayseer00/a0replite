@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from core.guardian.audit import get_events
+from core.guardian import audit as guardian_audit
 from models.guardian import (
     ApproveRequest,
     ApproveResponse,
@@ -83,10 +83,5 @@ async def audit(
 ) -> AuditResponse:
     _require_operator_auth(x_operator_key)
     inst = _get_inst(request)
-    raw_log = inst.audit_tail(n=n)
-    if event_type:
-        raw_log = [
-            e for e in raw_log
-            if e.get("type") == event_type or e.get("event_type") == event_type
-        ]
-    return AuditResponse(events=list(raw_log), hmmm="")
+    events = guardian_audit.get_events(inst, event_type=event_type or None)
+    return AuditResponse(events=events[-n:], hmmm="")
