@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from typing import Optional
 
 import httpx
@@ -14,23 +15,25 @@ def _headers_for(token: str) -> dict:
     return {**_HEADERS, "Authorization": f"Bearer {token}"}
 
 
-def _sentinel_for_token(token: str) -> str:
-    import os
+def _service_for_token(token: str) -> str:
+    """Map a token to its registry service name."""
     if token and token == os.environ.get("GITHUB_TOKEN_WAYSEER00", ""):
         return "github_wayseer00"
     if token and token == os.environ.get("GITHUB_TOKEN_VAULT2", ""):
         return "github_vault2"
-    return "github_wayseer00"
+    return ""
 
 
-def _record(token: str, ok: bool, msg: str = "") -> None:
+def _record(token: str, ok: bool) -> None:
     try:
         from core import status_registry
-        svc = _sentinel_for_token(token)
+        svc = _service_for_token(token)
+        if not svc:
+            return
         if ok:
             status_registry.record_ok(svc)
         else:
-            status_registry.record_error(svc, msg)
+            status_registry.record_error(svc)
     except Exception:
         pass
 
@@ -38,53 +41,53 @@ def _record(token: str, ok: bool, msg: str = "") -> None:
 async def create_gist(token: str, filename: str, content: str, description: str = "") -> str:
     """Create a private GitHub Gist and return its ID."""
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{_API}/gists",
-            headers=_headers_for(token),
-            json={
-                "description": description,
-                "public": False,
-                "files": {filename: {"content": content}},
-            },
-        )
         try:
+            resp = await client.post(
+                f"{_API}/gists",
+                headers=_headers_for(token),
+                json={
+                    "description": description,
+                    "public": False,
+                    "files": {filename: {"content": content}},
+                },
+            )
             resp.raise_for_status()
             gist_id = resp.json()["id"]
             _record(token, True)
             return gist_id
-        except Exception as exc:
-            _record(token, False, str(exc))
+        except Exception:
+            _record(token, False)
             raise
 
 
 async def read_gist(token: str, gist_id: str, filename: str) -> str:
     """Read content of a file in a GitHub Gist."""
     async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{_API}/gists/{gist_id}", headers=_headers_for(token))
         try:
+            resp = await client.get(f"{_API}/gists/{gist_id}", headers=_headers_for(token))
             resp.raise_for_status()
             data = resp.json()
             content = data["files"][filename]["content"]
             _record(token, True)
             return content
-        except Exception as exc:
-            _record(token, False, str(exc))
+        except Exception:
+            _record(token, False)
             raise
 
 
 async def update_gist(token: str, gist_id: str, filename: str, content: str) -> None:
     """Update a file in an existing Gist."""
     async with httpx.AsyncClient() as client:
-        resp = await client.patch(
-            f"{_API}/gists/{gist_id}",
-            headers=_headers_for(token),
-            json={"files": {filename: {"content": content}}},
-        )
         try:
+            resp = await client.patch(
+                f"{_API}/gists/{gist_id}",
+                headers=_headers_for(token),
+                json={"files": {filename: {"content": content}}},
+            )
             resp.raise_for_status()
             _record(token, True)
-        except Exception as exc:
-            _record(token, False, str(exc))
+        except Exception:
+            _record(token, False)
             raise
 
 

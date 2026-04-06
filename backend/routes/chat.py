@@ -153,25 +153,31 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
 
             full_assistant_snapshot = {**behavioral_vec.as_dict(), "bridge": bridge.as_dict()}
 
-            await db.execute(
-                """
-                INSERT INTO chat_messages
-                  (message_id, session_id, role, content, turn_id, edcm_snapshot)
-                VALUES ($1,$2,$3,$4,$5,$6)
-                """,
-                str(uuid.uuid4()), payload.session_id, "user", payload.message, turn_id,
-                json.dumps(edcm_snapshot),
-            )
-            await db.execute(
-                """
-                INSERT INTO chat_messages
-                  (message_id, session_id, role, content, turn_id, edcm_snapshot)
-                VALUES ($1,$2,$3,$4,$5,$6)
-                """,
-                str(uuid.uuid4()), payload.session_id, "assistant", full_response, turn_id,
-                json.dumps(full_assistant_snapshot),
-            )
-            await persist_session(payload.session_id, inst, db)
+            from core import status_registry
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO chat_messages
+                      (message_id, session_id, role, content, turn_id, edcm_snapshot)
+                    VALUES ($1,$2,$3,$4,$5,$6)
+                    """,
+                    str(uuid.uuid4()), payload.session_id, "user", payload.message, turn_id,
+                    json.dumps(edcm_snapshot),
+                )
+                await db.execute(
+                    """
+                    INSERT INTO chat_messages
+                      (message_id, session_id, role, content, turn_id, edcm_snapshot)
+                    VALUES ($1,$2,$3,$4,$5,$6)
+                    """,
+                    str(uuid.uuid4()), payload.session_id, "assistant", full_response, turn_id,
+                    json.dumps(full_assistant_snapshot),
+                )
+                await persist_session(payload.session_id, inst, db)
+                status_registry.record_ok("db")
+            except Exception as db_exc:
+                status_registry.record_error("db")
+                raise db_exc
         except Exception as exc:
             quarantine(exc, "chat:post_stream", inst)
 

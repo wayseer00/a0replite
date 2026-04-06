@@ -9,7 +9,6 @@ from typing import Any, Optional
 log = logging.getLogger("a0replite.heartbeat")
 
 _start_time: float = time.time()
-_heartbeat_task: Optional[asyncio.Task] = None
 
 
 def _uptime() -> float:
@@ -84,33 +83,39 @@ def _get_last_chat_ts(inst: Any) -> Optional[float]:
     return None
 
 
-async def _get_session_count(app: Any) -> str:
+async def _get_session_count(app: Any) -> int:
+    """Return count of active sessions, or -1 on error."""
     try:
         db = getattr(app.state, "db", None)
         if db is None:
-            return "error: no db pool"
+            return -1
         count = await db.fetchval("SELECT COUNT(*) FROM chat_sessions")
-        return str(int(count))
-    except Exception as exc:
-        return f"error: {exc}"
+        return int(count)
+    except Exception:
+        return -1
 
 
 async def _check_db(app: Any) -> str:
+    """Return 'ok' or 'error' and update status registry."""
     from core import status_registry
     try:
         db = getattr(app.state, "db", None)
         if db is None:
-            status_registry.record_error("db", "no pool")
-            return "error: no pool"
+            status_registry.record_error("db")
+            return "error"
         await db.fetchval("SELECT 1")
         status_registry.record_ok("db")
         return "ok"
-    except Exception as exc:
-        status_registry.record_error("db", str(exc))
-        return f"error: {exc}"
+    except Exception:
+        status_registry.record_error("db")
+        return "error"
 
 
-def _build_stats(inst: Any, app: Any, session_count_str: str, db_str: str) -> dict:
+def _build_stats(
+    inst: Any,
+    db_status: str,
+    session_count: int,
+) -> dict:
     from core import status_registry
     statuses = status_registry.get_all()
     return {
@@ -118,8 +123,8 @@ def _build_stats(inst: Any, app: Any, session_count_str: str, db_str: str) -> di
         "uptime_secs": round(_uptime(), 1),
         "lifecycle": _get_lifecycle_state(inst),
         "s8_risk": _get_s8_risk(inst),
-        "session_count": session_count_str,
-        "db": db_str,
+        "session_count": session_count,
+        "db": db_status,
         "grok": statuses.get("grok", "unknown"),
         "github_wayseer00": statuses.get("github_wayseer00", "unknown"),
         "github_vault2": statuses.get("github_vault2", "unknown"),
@@ -145,11 +150,11 @@ async def _tick(app: Any) -> None:
     )
 
     if isinstance(db_status, Exception):
-        db_status = f"error: {db_status}"
+        db_status = "error"
     if isinstance(session_count, Exception):
-        session_count = f"error: {session_count}"
+        session_count = -1
 
-    stats = _build_stats(inst, app, str(session_count), str(db_status))
+    stats = _build_stats(inst, str(db_status), int(session_count))
 
     try:
         from core.guardian.audit import append_event

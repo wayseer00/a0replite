@@ -9,13 +9,13 @@ _XAI_BASE = "https://api.x.ai/v1"
 _TIMEOUT = 120.0
 
 
-def _record_grok(ok: bool, msg: str = "") -> None:
+def _record_grok(ok: bool) -> None:
     try:
         from core import status_registry
         if ok:
             status_registry.record_ok("grok")
         else:
-            status_registry.record_error("grok", msg)
+            status_registry.record_unavailable("grok")
     except Exception:
         pass
 
@@ -35,8 +35,8 @@ def make_grok_call_fn(api_key: str, model: str = "grok-3"):
                 result = resp.json()["choices"][0]["message"]["content"]
                 _record_grok(True)
                 return result
-            except Exception as exc:
-                _record_grok(False, str(exc))
+            except Exception:
+                _record_grok(False)
                 raise
     return call_fn
 
@@ -54,8 +54,8 @@ async def call_grok_text(api_key: str, messages: list[dict], model: str = "grok-
             result = resp.json()["choices"][0]["message"]["content"]
             _record_grok(True)
             return result
-        except Exception as exc:
-            _record_grok(False, str(exc))
+        except Exception:
+            _record_grok(False)
             raise
 
 
@@ -88,6 +88,6 @@ async def stream_grok(
                             yield delta
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
-        except Exception as exc:
-            _record_grok(False, str(exc))
+        except Exception:
+            _record_grok(False)
             raise
