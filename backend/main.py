@@ -193,6 +193,9 @@ async def _boot_system_instance() -> None:
 
     asyncio.create_task(_run_background_tasks())
 
+    from core.heartbeat import run_heartbeat_loop
+    asyncio.create_task(run_heartbeat_loop(app))
+
 
 async def _create_system_inst(user_id: str, db):
     from services.ptca_service import create_session

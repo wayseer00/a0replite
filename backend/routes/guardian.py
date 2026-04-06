@@ -6,7 +6,6 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from core.guardian.audit import get_events
-from core.invariants import require_hmmm
 from models.guardian import (
     ApproveRequest,
     ApproveResponse,
@@ -58,10 +57,9 @@ async def approve(
     x_operator_key: Optional[str] = Header(default=None),
 ) -> ApproveResponse:
     _require_operator_auth(x_operator_key)
-    require_hmmm(req.model_dump(), "POST /guardian/approve")
     inst = _get_inst(request)
     inst.approve(reason=req.reason)
-    return ApproveResponse(approved=True, reason=req.reason, hmmm=req.hmmm)
+    return ApproveResponse(approved=True, reason=req.reason)
 
 
 @router.post("/revoke", response_model=RevokeResponse)
@@ -71,10 +69,9 @@ async def revoke(
     x_operator_key: Optional[str] = Header(default=None),
 ) -> RevokeResponse:
     _require_operator_auth(x_operator_key)
-    require_hmmm(req.model_dump(), "POST /guardian/revoke")
     inst = _get_inst(request)
     inst.revoke(reason=req.reason)
-    return RevokeResponse(revoked=True, reason=req.reason, hmmm=req.hmmm)
+    return RevokeResponse(revoked=True, reason=req.reason)
 
 
 @router.get("/audit", response_model=AuditResponse)

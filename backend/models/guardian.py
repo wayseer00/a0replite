@@ -12,12 +12,12 @@ class SnapshotResponse(BaseModel):
 
 class ApproveRequest(BaseModel):
     reason: str = ""
-    hmmm: str = ""
+    hmmm: Optional[str] = None
 
 
 class RevokeRequest(BaseModel):
     reason: str = ""
-    hmmm: str = ""
+    hmmm: Optional[str] = None
 
 
 class ApproveResponse(BaseModel):

@@ -14,6 +14,27 @@ def _headers_for(token: str) -> dict:
     return {**_HEADERS, "Authorization": f"Bearer {token}"}
 
 
+def _sentinel_for_token(token: str) -> str:
+    import os
+    if token and token == os.environ.get("GITHUB_TOKEN_WAYSEER00", ""):
+        return "github_wayseer00"
+    if token and token == os.environ.get("GITHUB_TOKEN_VAULT2", ""):
+        return "github_vault2"
+    return "github_wayseer00"
+
+
+def _record(token: str, ok: bool, msg: str = "") -> None:
+    try:
+        from core import status_registry
+        svc = _sentinel_for_token(token)
+        if ok:
+            status_registry.record_ok(svc)
+        else:
+            status_registry.record_error(svc, msg)
+    except Exception:
+        pass
+
+
 async def create_gist(token: str, filename: str, content: str, description: str = "") -> str:
     """Create a private GitHub Gist and return its ID."""
     async with httpx.AsyncClient() as client:
@@ -26,17 +47,29 @@ async def create_gist(token: str, filename: str, content: str, description: str 
                 "files": {filename: {"content": content}},
             },
         )
-        resp.raise_for_status()
-        return resp.json()["id"]
+        try:
+            resp.raise_for_status()
+            gist_id = resp.json()["id"]
+            _record(token, True)
+            return gist_id
+        except Exception as exc:
+            _record(token, False, str(exc))
+            raise
 
 
 async def read_gist(token: str, gist_id: str, filename: str) -> str:
     """Read content of a file in a GitHub Gist."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(f"{_API}/gists/{gist_id}", headers=_headers_for(token))
-        resp.raise_for_status()
-        data = resp.json()
-        return data["files"][filename]["content"]
+        try:
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["files"][filename]["content"]
+            _record(token, True)
+            return content
+        except Exception as exc:
+            _record(token, False, str(exc))
+            raise
 
 
 async def update_gist(token: str, gist_id: str, filename: str, content: str) -> None:
@@ -47,7 +80,12 @@ async def update_gist(token: str, gist_id: str, filename: str, content: str) -> 
             headers=_headers_for(token),
             json={"files": {filename: {"content": content}}},
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+            _record(token, True)
+        except Exception as exc:
+            _record(token, False, str(exc))
+            raise
 
 
 async def store_share(token: str, gist_id: Optional[str], sentinel_id: str, share_b64: str, description: str = "") -> str:
