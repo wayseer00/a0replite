@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import json
-import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
+import edcmbone
+from edcmbone import CanonLoadError  # re-exported for callers
 
 _ZIP_PATH = Path(__file__).parent.parent.parent / "data" / "edcmbone_canon_data_v1.zip"
-
-
-class CanonLoadError(Exception):
-    """Raised when canonical data fails validation at startup."""
 
 
 @dataclass(frozen=True)
@@ -26,168 +22,25 @@ class CanonicalData:
     versions: dict[str, str]
 
 
-def _load_json_from_zip(zf: zipfile.ZipFile, name: str) -> dict:
-    names = zf.namelist()
-    candidates = [n for n in names if n == name or n.endswith(f"/{name}")]
-    if not candidates:
-        raise CanonLoadError(f"File {name!r} not found in canonical zip")
-    return json.loads(zf.read(candidates[0]))
-
-
-def _validate_meta(data: dict, filename: str) -> str:
-    meta = data.get("_meta")
-    if not isinstance(meta, dict):
-        raise CanonLoadError(f"{filename}: missing _meta dict")
-    version = meta.get("version")
-    if not version:
-        raise CanonLoadError(f"{filename}: _meta.version missing")
-    return str(version)
-
-
-def _build_word_lookups(
-    words_data: dict,
-) -> tuple[dict[str, str], dict[str, list[str]], list[tuple[str, str, str, list[str]]]]:
-    word_to_primary: dict[str, str] = {}
-    word_to_families: dict[str, list[str]] = {}
-
-    for entry in words_data.get("words", []):
-        w = entry.get("word", "").lower()
-        if not w:
-            continue
-        word_to_primary[w] = entry.get("primary", "S")
-        word_to_families[w] = entry.get("families", [entry.get("primary", "S")])
-
-    joins: list[tuple[str, str, str, list[str]]] = []
-    for entry in words_data.get("multiword_joins", []):
-        joined = entry.get("joined", "").lower()
-        original = entry.get("original", "").lower()
-        if not joined or not original:
-            continue
-        joins.append((joined, original, entry.get("primary", "S"), entry.get("families", [])))
-    # Sort longest-match-first: primary key = token count in original phrase,
-    # secondary key = character length.  Both descending so most specific entry wins.
-    joins.sort(key=lambda t: (len(t[1].split()), len(t[1])), reverse=True)
-    return word_to_primary, word_to_families, joins
-
-
-def _normalize_affix(entry: dict, default_type: str) -> dict:
-    """Return a copy of an affix entry with a guaranteed `type` key."""
-    out = dict(entry)
-    if "type" not in out:
-        out["type"] = default_type
-    if "affix" not in out:
-        out["affix"] = ""
-    return out
-
-
-def _affix_bare_len(a: dict) -> int:
-    return len(a.get("affix", "").lstrip("-").rstrip("-"))
-
-
-def _build_affix_lookups(
-    affixes_data: dict,
-) -> tuple[list[dict], list[dict], list[dict]]:
-    raw_infl = affixes_data.get("inflectional", {}).get("affixes", [])
-    raw_dp = affixes_data.get("derivational_prefixes", {}).get("affixes", [])
-    raw_ds = affixes_data.get("derivational_suffixes", {}).get("affixes", [])
-    infl = [_normalize_affix(a, "suffix") for a in raw_infl]
-    dp = [_normalize_affix(a, "prefix") for a in raw_dp]
-    ds = [_normalize_affix(a, "suffix") for a in raw_ds]
-    infl_sorted = sorted(infl, key=_affix_bare_len, reverse=True)
-    dp_sorted = sorted(dp, key=_affix_bare_len, reverse=True)
-    ds_sorted = sorted(ds, key=_affix_bare_len, reverse=True)
-    return infl_sorted, dp_sorted, ds_sorted
-
-
-def _build_punct_rules(punct_data: dict) -> dict[str, str]:
-    rules: dict[str, str] = {}
-    punct = punct_data.get("punctuation", [])
-    if isinstance(punct, list):
-        entries = punct
-    elif isinstance(punct, dict):
-        entries = punct.get("rules", [])
-    else:
-        entries = []
-    for entry in entries:
-        mark = entry.get("mark") or entry.get("symbol", "")
-        if mark:
-            rules[mark] = entry.get("primary", "S")
-    return rules
-
-
-def _build_markers(markers_data: dict) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for metric_id in ("C", "R", "D", "N", "L", "O", "F", "E", "I"):
-        if metric_id not in markers_data:
-            continue
-        section = markers_data[metric_id]
-        out[metric_id] = {
-            "formula": section.get("formula", ""),
-            "requires_embeddings": section.get("requires_embeddings", False),
-            "computable_from_markers": section.get("computable_from_markers", True),
-            "explanation": section.get("explanation", ""),
-            "marker_lists": {
-                k: v
-                for k, v in section.get("markers", {}).items()
-                if isinstance(v, list)
-            },
-        }
-    return out
-
-
 def load_canonical_data() -> CanonicalData:
     """
-    Load canonical EDCM bone data.
+    Load EDCM canonical bone data via the ``edcmbone`` package public API.
 
-    The edcmbone package (installed from The-Interdependency/edcmbone) ships Python
-    scaffolding and the canonical data zip at backend/data/edcmbone_canon_data_v1.zip.
-    We first attempt to locate data via the installed package's __file__ path, then
-    fall back to the bundled zip path. All four JSON files are validated against
-    _meta.version before use. Raises CanonLoadError on failure.
+    The zip path is resolved from ``backend/data/edcmbone_canon_data_v1.zip``.
+    All parsing and validation is delegated to :func:`edcmbone.load_canonical_data`.
+    Raises :class:`edcmbone.CanonLoadError` on any failure.
     """
-    try:
-        import edcmbone as _edcmbone_pkg
-        _pkg_dir = Path(_edcmbone_pkg.__file__).parent.parent
-        _candidate = _pkg_dir / "edcmbone_canon_data_v1.zip"
-        if not _candidate.exists():
-            _candidate = _ZIP_PATH
-    except ImportError:
-        _candidate = _ZIP_PATH
-
-    if not _candidate.exists():
-        raise CanonLoadError(
-            f"edcmbone canonical zip not found at {_candidate}. "
-            "Cannot start without canonical data."
-        )
-
-    with zipfile.ZipFile(_candidate) as zf:
-        words_data = _load_json_from_zip(zf, "bones_words_v1.json")
-        affixes_data = _load_json_from_zip(zf, "bones_affixes_v1.json")
-        punct_data = _load_json_from_zip(zf, "bones_punct_v1.json")
-        markers_data = _load_json_from_zip(zf, "markers_v1.json")
-
-    versions = {
-        "bones_words": _validate_meta(words_data, "bones_words_v1.json"),
-        "bones_affixes": _validate_meta(affixes_data, "bones_affixes_v1.json"),
-        "bones_punct": _validate_meta(punct_data, "bones_punct_v1.json"),
-        "markers": _validate_meta(markers_data, "markers_v1.json"),
-    }
-
-    word_to_primary, word_to_families, multiword_joins = _build_word_lookups(words_data)
-    inflectional, dp, ds = _build_affix_lookups(affixes_data)
-    punct_rules = _build_punct_rules(punct_data)
-    markers_by_metric = _build_markers(markers_data)
-
+    raw: edcmbone.CanonData = edcmbone.load_canonical_data(_ZIP_PATH)
     return CanonicalData(
-        word_to_primary=word_to_primary,
-        word_to_families=word_to_families,
-        multiword_joins=multiword_joins,
-        inflectional_affixes=inflectional,
-        derivational_prefixes=dp,
-        derivational_suffixes=ds,
-        punct_rules=punct_rules,
-        markers_by_metric=markers_by_metric,
-        versions=versions,
+        word_to_primary=raw.word_to_primary,
+        word_to_families=raw.word_to_families,
+        multiword_joins=raw.multiword_joins,
+        inflectional_affixes=raw.inflectional_affixes,
+        derivational_prefixes=raw.derivational_prefixes,
+        derivational_suffixes=raw.derivational_suffixes,
+        punct_rules=raw.punct_rules,
+        markers_by_metric=raw.markers_by_metric,
+        versions=raw.versions,
     )
 
 

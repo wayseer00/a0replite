@@ -21,53 +21,7 @@ from guardian_state.aead import seal, unseal
 from guardian_state.threshold import split_secret, reconstruct_secret
 from guardian_state.wrap import WrappedLiveKey
 
-import httpx
-
-
-_GITHUB_API = "https://api.github.com"
-_GH_HEADERS = {
-    "Accept": "application/vnd.github.v3+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-}
-
-
-def _gh_headers(token: str) -> dict:
-    return {**_GH_HEADERS, "Authorization": f"Bearer {token}"}
-
-
-async def _create_gist(token: str, sentinel_id: str, share_b64: str, description: str) -> str:
-    filename = f"{sentinel_id}_share.json"
-    content = json.dumps({"sentinel_id": sentinel_id, "share": share_b64}, indent=2)
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{_GITHUB_API}/gists",
-            headers=_gh_headers(token),
-            json={"description": description, "public": False, "files": {filename: {"content": content}}},
-        )
-        resp.raise_for_status()
-        return resp.json()["id"]
-
-
-async def _update_gist(token: str, gist_id: str, sentinel_id: str, share_b64: str) -> None:
-    filename = f"{sentinel_id}_share.json"
-    content = json.dumps({"sentinel_id": sentinel_id, "share": share_b64}, indent=2)
-    async with httpx.AsyncClient() as client:
-        resp = await client.patch(
-            f"{_GITHUB_API}/gists/{gist_id}",
-            headers=_gh_headers(token),
-            json={"files": {filename: {"content": content}}},
-        )
-        resp.raise_for_status()
-
-
-async def _read_gist_share(token: str, gist_id: str, sentinel_id: str) -> bytes:
-    filename = f"{sentinel_id}_share.json"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{_GITHUB_API}/gists/{gist_id}", headers=_gh_headers(token))
-        resp.raise_for_status()
-        raw_content = resp.json()["files"][filename]["content"]
-        data = json.loads(raw_content)
-        return base64.b64decode(data["share"])
+from core.crypto.gist_store import load_share, store_share
 
 
 async def seal_session(
@@ -114,17 +68,8 @@ async def seal_session(
         commitment = make_commitment(commitment_shares)
 
         description = f"a0replite PCEA share — epoch {epoch}"
-        if existing_gist_id_1:
-            await _update_gist(github_token_1, existing_gist_id_1, "gist_wayseer00", share0_b64)
-            gist_id_1 = existing_gist_id_1
-        else:
-            gist_id_1 = await _create_gist(github_token_1, "gist_wayseer00", share0_b64, description)
-
-        if existing_gist_id_2:
-            await _update_gist(github_token_2, existing_gist_id_2, "gist_vault2", share1_b64)
-            gist_id_2 = existing_gist_id_2
-        else:
-            gist_id_2 = await _create_gist(github_token_2, "gist_vault2", share1_b64, description)
+        gist_id_1 = await store_share(github_token_1, existing_gist_id_1, "gist_wayseer00", share0_b64, description)
+        gist_id_2 = await store_share(github_token_2, existing_gist_id_2, "gist_vault2", share1_b64, description)
 
         return {
             "sealed_blob": base64.b64encode(ciphertext).decode(),
@@ -174,8 +119,8 @@ async def unseal_session(
     live_key = b""
     meta_key = b""
     try:
-        share0_bytes = await _read_gist_share(github_token_1, gist_id_1, "gist_wayseer00")
-        share1_bytes = await _read_gist_share(github_token_2, gist_id_2, "gist_vault2")
+        share0_bytes = await load_share(github_token_1, gist_id_1, "gist_wayseer00")
+        share1_bytes = await load_share(github_token_2, gist_id_2, "gist_vault2")
 
         if commitment:
             commitment_shares = [

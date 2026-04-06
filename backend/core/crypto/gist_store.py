@@ -50,14 +50,15 @@ async def update_gist(token: str, gist_id: str, filename: str, content: str) -> 
         resp.raise_for_status()
 
 
-async def store_share(token: str, gist_id: Optional[str], sentinel_id: str, share_b64: str) -> str:
+async def store_share(token: str, gist_id: Optional[str], sentinel_id: str, share_b64: str, description: str = "") -> str:
     """Store (or update) a Shamir share in a Gist. Returns the gist_id."""
     filename = f"{sentinel_id}_share.json"
-    content = json.dumps({"sentinel": sentinel_id, "share": share_b64}, indent=2)
+    content = json.dumps({"sentinel_id": sentinel_id, "share": share_b64}, indent=2)
+    desc = description or f"a0replite share for {sentinel_id}"
     if gist_id:
         await update_gist(token, gist_id, filename, content)
         return gist_id
-    return await create_gist(token, filename, content, description=f"a0replite share for {sentinel_id}")
+    return await create_gist(token, filename, content, description=desc)
 
 
 async def load_share(token: str, gist_id: str, sentinel_id: str) -> bytes:

@@ -31,8 +31,8 @@ async def store_shares(share_a: bytes, share_b: bytes) -> tuple[str, str]:
     b64_a = base64.b64encode(share_a).decode()
     b64_b = base64.b64encode(share_b).decode()
 
-    _GIST_ID_A = await store_share(token_a, _GIST_ID_A, "wayseer00", b64_a)
-    _GIST_ID_B = await store_share(token_b, _GIST_ID_B, "vault2", b64_b)
+    _GIST_ID_A = await store_share(token_a, _GIST_ID_A, "gist_wayseer00", b64_a)
+    _GIST_ID_B = await store_share(token_b, _GIST_ID_B, "gist_vault2", b64_b)
     return _GIST_ID_A, _GIST_ID_B
 
 
@@ -41,8 +41,8 @@ async def load_shares() -> tuple[bytes, bytes]:
     token_a, token_b = _tokens()
     if not _GIST_ID_A or not _GIST_ID_B:
         raise RuntimeError("Gist IDs not set — shares not yet stored this session")
-    share_a = await load_share(token_a, _GIST_ID_A, "wayseer00")
-    share_b = await load_share(token_b, _GIST_ID_B, "vault2")
+    share_a = await load_share(token_a, _GIST_ID_A, "gist_wayseer00")
+    share_b = await load_share(token_b, _GIST_ID_B, "gist_vault2")
     return share_a, share_b
 
 
