@@ -88,7 +88,9 @@ async def run_boot_task(inst: Any, grok_call_fn: Callable, github_token: str) ->
         )
         prompt = f"{_IDENTITY_SPEC}\n\n{files_block}\n\n{_PATCH_PROMPT}"
 
-        response = await grok_call_fn("grok-3", [{"role": "user", "content": prompt}])
+        import os as _os
+        _model = _os.environ.get("OPENAI_MODEL_ROOT", "gpt-4o")
+        response = await grok_call_fn(_model, [{"role": "user", "content": prompt}])
         patches = _extract_patches(response)
 
         patches_applied = 0

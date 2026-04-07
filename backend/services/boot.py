@@ -62,7 +62,8 @@ async def run_boot_sequence(inst: Any, grok_call_fn: Callable, github_token: str
     ops_content = file_contents.get("a0precepts.md", "")
     tech_content = file_contents.get("canon/spec.md", "")
 
-    model_id = "grok-3"
+    import os
+    model_id = os.environ.get("OPENAI_MODEL_ROOT", "gpt-4o")
 
     try:
         phil_results = await aimmh_lib.daisy_chain(

@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s
 log = logging.getLogger("a0replite.main")
 
 _REQUIRED_ENV = [
-    "XAI_API_KEY",
+    "OPENAI_API_KEY",
     "GITHUB_TOKEN_WAYSEER00",
     "GITHUB_TOKEN_VAULT2",
     "PCEA_IKM",
@@ -55,6 +55,7 @@ from routes.content import router as content_router
 from routes.guardian import router as guardian_router
 from routes.health import router as health_router
 from routes.payments import router as payments_router
+from routes.policy import router as policy_router
 
 app = FastAPI(title="a0replite", version="0.3.0", docs_url="/api/docs", redoc_url=None)
 
@@ -71,6 +72,7 @@ app.include_router(chat_router)
 app.include_router(content_router)
 app.include_router(payments_router)
 app.include_router(guardian_router)
+app.include_router(policy_router)
 
 
 @app.exception_handler(InvariantViolation)
@@ -145,7 +147,7 @@ async def _run_migrations() -> None:
 
 async def _boot_system_instance() -> None:
     from ptca import PTCAInstance
-    from core.grok_adapter import make_grok_call_fn
+    from core.openai_adapter import make_openai_call_fn
     from routes.health import set_system_inst
 
     SYSTEM_USER = "a0-system"
@@ -171,8 +173,8 @@ async def _boot_system_instance() -> None:
     inst.remember("boot_epoch", int(time.time()) // 86400)
 
     github_token = os.environ.get("GITHUB_TOKEN_WAYSEER00", "")
-    api_key = os.environ.get("XAI_API_KEY", "")
-    grok_text_fn = make_grok_call_fn(api_key)
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    grok_text_fn = make_openai_call_fn(api_key)
 
     app.state.system_inst = inst
 

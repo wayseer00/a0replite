@@ -20,7 +20,7 @@ from core.edcm.turn_agg import aggregate_turn, OperatorVector
 from core.guardian import audit
 from core.guardian.emitter import emit
 from core.guardian.recovery import quarantine
-from core.grok_adapter import stream_grok
+from core.openai_adapter import stream_openai
 from core.invariants import require_hmmm
 from models.message import ChatPayload
 from models.session import MemoryResponse
@@ -28,8 +28,6 @@ from services.context_builder import build_system_prompt
 from services.ptca_service import create_session, get_session_lifecycle, persist_session, restore_session
 
 router = APIRouter(prefix="/api", tags=["chat"])
-
-_DEFAULT_MODEL = "grok-3"
 
 
 def _get_db(request: Request):
@@ -66,7 +64,7 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
     edcm_from_session = inst.recall("last_edcm_snapshot", default=None)
     system_prompt = build_system_prompt(inst, edcm_from_session)
 
-    api_key = _xai_key()
+    api_key = _openai_key()
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": payload.message},
@@ -103,7 +101,7 @@ async def chat(payload: ChatPayload, request: Request) -> StreamingResponse:
             )
 
         full_response = ""
-        async for chunk in stream_grok(api_key, messages, _DEFAULT_MODEL):
+        async for chunk in stream_openai(api_key, messages):
             full_response += chunk
             emit(inst, chunk, _emit_to_buffer)
             while pending:
@@ -211,9 +209,9 @@ async def get_memory(session_id: str, request: Request) -> MemoryResponse:
     )
 
 
-def _xai_key() -> str:
+def _openai_key() -> str:
     import os
-    key = os.environ.get("XAI_API_KEY", "")
+    key = os.environ.get("OPENAI_API_KEY", "")
     if not key:
-        raise HTTPException(status_code=503, detail="XAI_API_KEY not configured")
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
     return key

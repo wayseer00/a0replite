@@ -1,0 +1,77 @@
+{
+  "provider": "openai",
+  "api_family": "responses",
+  "version": "2025-04",
+  "roles": {
+    "root_orchestrator": {
+      "model_env": "OPENAI_MODEL_ROOT",
+      "default": "gpt-4o",
+      "purpose": "Boot sequence, high-stakes orchestration, synthesis"
+    },
+    "high_risk_gate": {
+      "model_env": "OPENAI_MODEL_ROOT",
+      "default": "gpt-4o",
+      "purpose": "Guardian approval gate decisions"
+    },
+    "worker": {
+      "model_env": "OPENAI_MODEL_WORKER",
+      "default": "gpt-4o-mini",
+      "purpose": "Standard chat, per-turn response generation"
+    },
+    "classifier": {
+      "model_env": "OPENAI_MODEL_CLASSIFIER",
+      "default": "gpt-4o-mini",
+      "purpose": "Intent classification, span detection, EDCM tagging"
+    },
+    "deep_pass": {
+      "model_env": "OPENAI_MODEL_DEEP",
+      "default": "gpt-4o",
+      "purpose": "Deep context synthesis, memory consolidation"
+    }
+  },
+  "defaults": {
+    "store": false,
+    "temperature": 1,
+    "max_output_tokens": 4000,
+    "reasoning": {
+      "effort": "low"
+    }
+  },
+  "approval_gates": {
+    "PUSH": {
+      "description": "Required before any GitHub push (website repair boot task)",
+      "required": true
+    },
+    "EXTERNAL_CALL": {
+      "description": "Required before calling external APIs not pre-approved",
+      "required": true
+    }
+  },
+  "logging": {
+    "store_conversations": false,
+    "audit_log": true,
+    "pcea_seal_on_store": true
+  },
+  "structured_output_schemas": {
+    "patch_set": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "content": {"type": "string"}
+        },
+        "required": ["path", "content"]
+      }
+    },
+    "guardian_decision": {
+      "type": "object",
+      "properties": {
+        "approved": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "hmmm": {"type": "string"}
+      },
+      "required": ["approved", "reason", "hmmm"]
+    }
+  }
+}
